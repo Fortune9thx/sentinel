@@ -7,7 +7,7 @@
 export type SentinelNetworkKey = "bradbury" | "studio" | "asimov";
 
 export const SENTINEL_FACTORY_ADDRESSES: Record<SentinelNetworkKey, `0x${string}` | undefined> = {
-  bradbury: undefined,
+  bradbury: "0x84c70B571F61813C38C5bfC0A585b7BE75f85F1F",
   studio: undefined,
   asimov: undefined,
 };
