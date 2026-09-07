@@ -3,6 +3,7 @@ node_modules/
 frontend/.next/
 frontend/out/
 frontend/.turbo/
+frontend/.vercel/
 npm-debug.log*
 
 # Env
