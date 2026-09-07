@@ -1,0 +1,15 @@
+[project]
+name = "sentinel"
+version = "0.1.0"
+description = "Sentinel -- live SLA truth-bonds for the agent/x402 economy, built on GenLayer Intelligent Contracts."
+requires-python = ">=3.12"
+dependencies = [
+    "genlayer-py",
+    "genlayer-test",
+    "genvm-linter",
+    "pytest",
+    "python-dotenv",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/direct"]

@@ -1,0 +1,267 @@
+@import "tailwindcss";
+
+:root {
+  /* Editorial trust-register: an off-white ground, near-black display type,
+     one committed red accent -- modeled directly on the reference design
+     (Nexora): bold oversized headlines, soft lavender-tinted "input" cards
+     paired with clean white "output" cards, red circular icon badges. */
+  --color-bg: #f6f5f2;
+  --color-bg-subtle: #efeee9;
+  --color-surface: #ffffff;
+  --color-surface-raised: #ffffff;
+  --color-border: #e6e4de;
+  --color-border-strong: #d8d5cc;
+
+  --color-fg: #14130f;
+  --color-fg-secondary: #57544c;
+  --color-fg-muted: #8b8779;
+
+  --color-red: #e14a35;
+  --color-red-dim: #c53d2a;
+  --color-red-soft: rgba(225, 74, 53, 0.1);
+
+  --color-lavender: #ece9fb;
+  --color-lavender-strong: #d9d4f7;
+
+  --color-positive: #1e8a5f;
+  --color-positive-soft: rgba(30, 138, 95, 0.1);
+  --color-negative: #d0432a;
+  --color-negative-soft: rgba(208, 67, 42, 0.1);
+  --color-warning: #b8790a;
+  --color-warning-soft: rgba(184, 121, 10, 0.12);
+
+  /* Fixed "code / audit-log" chrome -- deliberately NOT theme-reactive. A
+     block styled as a permanently-dark terminal window (monospace, light
+     text) regardless of site theme must never be redefined inside a
+     dark-mode block, or a hardcoded light-text pairing goes invisible the
+     moment the token itself flips light -- a real, previously-hit bug on
+     this exact stack. This token intentionally has one value, always. */
+  --color-code-bg: #14130f;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+
+  --shadow-soft: 0 1px 2px rgba(20, 19, 15, 0.04), 0 8px 24px rgba(20, 19, 15, 0.05);
+  --shadow-lifted: 0 4px 12px rgba(20, 19, 15, 0.06), 0 20px 44px rgba(20, 19, 15, 0.09);
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #121110;
+  --color-bg-subtle: #181714;
+  --color-surface: #1c1b18;
+  --color-surface-raised: #221f1b;
+  --color-border: #322f29;
+  --color-border-strong: #443f37;
+
+  --color-fg: #f3f1ea;
+  --color-fg-secondary: #c2bdae;
+  --color-fg-muted: #8a8576;
+
+  --color-red: #ff6a4d;
+  --color-red-dim: #e8583e;
+  --color-red-soft: rgba(255, 106, 77, 0.16);
+
+  --color-lavender: #26243a;
+  --color-lavender-strong: #322f52;
+
+  --color-positive: #3fbf8b;
+  --color-positive-soft: rgba(63, 191, 139, 0.14);
+  --color-negative: #ef6a4d;
+  --color-negative-soft: rgba(239, 106, 77, 0.14);
+  --color-warning: #e0a83f;
+  --color-warning-soft: rgba(224, 168, 63, 0.16);
+
+  --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-lifted: 0 4px 16px rgba(0, 0, 0, 0.32), 0 24px 48px rgba(0, 0, 0, 0.42);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #121110;
+    --color-bg-subtle: #181714;
+    --color-surface: #1c1b18;
+    --color-surface-raised: #221f1b;
+    --color-border: #322f29;
+    --color-border-strong: #443f37;
+
+    --color-fg: #f3f1ea;
+    --color-fg-secondary: #c2bdae;
+    --color-fg-muted: #8a8576;
+
+    --color-red: #ff6a4d;
+    --color-red-dim: #e8583e;
+    --color-red-soft: rgba(255, 106, 77, 0.16);
+
+    --color-lavender: #26243a;
+    --color-lavender-strong: #322f52;
+
+    --color-positive: #3fbf8b;
+    --color-positive-soft: rgba(63, 191, 139, 0.14);
+    --color-negative: #ef6a4d;
+    --color-negative-soft: rgba(239, 106, 77, 0.14);
+    --color-warning: #e0a83f;
+    --color-warning-soft: rgba(224, 168, 63, 0.16);
+
+    --shadow-soft: 0 1px 2px rgba(0, 0, 0, 0.24), 0 8px 24px rgba(0, 0, 0, 0.3);
+    --shadow-lifted: 0 4px 16px rgba(0, 0, 0, 0.32), 0 24px 48px rgba(0, 0, 0, 0.42);
+  }
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-bg-subtle: var(--color-bg-subtle);
+  --color-surface: var(--color-surface);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-fg: var(--color-fg);
+  --color-fg-secondary: var(--color-fg-secondary);
+  --color-fg-muted: var(--color-fg-muted);
+  --color-red: var(--color-red);
+  --color-red-dim: var(--color-red-dim);
+  --color-red-soft: var(--color-red-soft);
+  --color-lavender: var(--color-lavender);
+  --color-lavender-strong: var(--color-lavender-strong);
+  --color-positive: var(--color-positive);
+  --color-positive-soft: var(--color-positive-soft);
+  --color-negative: var(--color-negative);
+  --color-negative-soft: var(--color-negative-soft);
+  --color-warning: var(--color-warning);
+  --color-warning-soft: var(--color-warning-soft);
+  --color-code-bg: var(--color-code-bg);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html {
+  color-scheme: light;
+}
+:root[data-theme="dark"] html,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  position: relative;
+  min-height: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Display headlines: bold, tight tracking, matching the reference's
+   oversized editorial type treatment. */
+.display-heading {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+}
+
+.card-surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 24px;
+  box-shadow: var(--shadow-soft);
+  transition: box-shadow 200ms ease, border-color 200ms ease, transform 200ms ease;
+}
+
+.card-surface-hover:hover {
+  box-shadow: var(--shadow-lifted);
+  border-color: var(--color-border-strong);
+}
+
+.card-input {
+  background: var(--color-lavender);
+  border: 1px solid var(--color-lavender-strong);
+  border-radius: 24px;
+}
+
+/* The decorative conveyor/drum motif from the reference hero -- a large,
+   softly-lit red cylinder anchoring the hero's right side. Rendered as a
+   pure CSS gradient shape (no image asset) so it stays crisp at any size
+   and costs nothing to load. */
+.hero-drum {
+  position: absolute;
+  inset: 0;
+  border-radius: 40px;
+  background:
+    radial-gradient(120% 100% at 30% 20%, rgba(255, 255, 255, 0.35), transparent 55%),
+    linear-gradient(135deg, #f2c9c0 0%, var(--color-red) 45%, var(--color-red-dim) 100%);
+  box-shadow: var(--shadow-lifted);
+  overflow: hidden;
+}
+
+.hero-drum::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    100deg,
+    rgba(20, 19, 15, 0.14) 0px,
+    rgba(20, 19, 15, 0.14) 3px,
+    transparent 3px,
+    transparent 22px
+  );
+  opacity: 0.5;
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.8s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-bg-subtle) 25%,
+    var(--color-border) 50%,
+    var(--color-bg-subtle) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+::selection {
+  background: var(--color-red-soft);
+  color: var(--color-fg);
+}
+
+* {
+  scrollbar-color: var(--color-border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
