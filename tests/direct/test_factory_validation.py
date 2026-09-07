@@ -10,9 +10,9 @@ testable in direct mode; the success path (a real spawned, readable child
 Sentinel) is integration-test-only -- see tests/integration/test_full_lifecycle.py.
 """
 
-from gltest.direct import VMContext, deploy_contract, create_test_addresses
+from gltest.direct import VMContext, create_test_addresses
 
-from conftest import SENTINEL_FACTORY_PATH, SENTINEL_PATH, to_hex
+from conftest import SENTINEL_FACTORY_PATH, SENTINEL_PATH, deploy_contract, to_hex
 
 
 def _deploy_factory(vm, owner, creation_stake=0):

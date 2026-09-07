@@ -50,7 +50,7 @@ projects on this stack):
   covenant contract. `owner` gates exactly one privileged action — `withdraw_fees()` — and nothing
   else; every other write (`create_covenant`) is intentionally permissionless, gated by the
   creation stake, not an allowlist.
-- **`Sentinel.py`** — a single covenant's full lifecycle: `fund_bond` (payable, permissionless,
+- **`Sentinel.py`** — a single covenant's full lifecycle: `fund_bond` (payable, seller-only,
   auto-activating), `register_as_beneficiary` (permissionless standing registration),
   `audit` (the fail-closed Equivalence Principle consensus step), `claim_slash_share`
   (pull-based breach payout), `request_exit` / `withdraw_remaining_bond` (bounded bond recovery),
@@ -77,7 +77,14 @@ touches nothing at all. There is no dead end where value sits with no recovery p
 | Unreachable (sustained) | 3+ consecutive unreachable audits spanning 1h+ | Counts as one confirmed violation, same as a direct violation |
 | Violation (below threshold) | Judged non-compliant, confidence < threshold | Recorded as inconclusive -- fail-closed, no streak movement |
 | Breach | 3rd consecutive confirmed violation | Bond slashed (clamped to available bond) into a claims pool -- but only if at least one beneficiary is eligible; otherwise the breach is still logged, nothing is moved |
-| Bond exit | Seller calls `request_exit()`, waits 72h, calls `withdraw_remaining_bond()` | Whatever wasn't slashed is recovered in full -- audits and slashing stay live for the entire cooldown, so a seller mid-streak cannot dodge an imminent breach by exiting |
+| Bond exit | Seller calls `request_exit()` (from `PENDING_BOND` or `ACTIVE`), waits 72h, calls `withdraw_remaining_bond()` | Whatever wasn't slashed is recovered in full -- audits and slashing stay live for the entire cooldown, so a seller mid-streak cannot dodge an imminent breach by exiting |
+
+`request_exit()` deliberately accepts `PENDING_BOND` as well as `ACTIVE`. An earlier version only
+accepted `ACTIVE`, which meant a covenant whose `min_bond` was never reached had no way out at all --
+any GEN already sent via `fund_bond()` was permanently stranded, a real fund-safety bug with no
+adversarial actor required (see `docs/AUDIT.md`'s strict-review pass). Allowing exit from
+`PENDING_BOND` too closes that without weakening the anti-gaming property below, since an inactive
+covenant has no beneficiaries relying on it yet.
 
 This directly closes a real failure mode: a naive design could let a seller escape an about-to-hit
 breach by withdrawing the instant a bad streak starts. `request_exit()` only starts a cooldown; it

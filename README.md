@@ -65,7 +65,7 @@ validators, each doing their own fetch and their own reasoning, reach the same c
 SentinelFactory.create_covenant(service_name, endpoint_url, spec, slash_amount, min_bond) -> address
 ```
 
-**2. Fund the bond** (permissionless top-up; auto-activates once it clears `min_bond`):
+**2. Fund the bond** (seller-only top-up; auto-activates once it clears `min_bond`):
 
 ```
 Sentinel.fund_bond()  # payable

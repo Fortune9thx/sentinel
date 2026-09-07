@@ -7,9 +7,9 @@ whole cooldown window.
 
 import json
 
-from gltest.direct import VMContext, deploy_contract, create_test_addresses
+from gltest.direct import VMContext, create_test_addresses
 
-from conftest import SENTINEL_PATH, warp_now
+from conftest import SENTINEL_PATH, deploy_contract, warp_now
 
 SPEC = "99.9% uptime."
 ENDPOINT = "https://example.com/status"
@@ -114,7 +114,7 @@ def test_double_exit_request_rejected():
         sentinel = _deploy_active(vm, seller)
         vm.sender = seller
         sentinel.request_exit()
-        with vm.expect_revert("not active"):
+        with vm.expect_revert("cannot exit from its current status"):
             sentinel.request_exit()
 
 
@@ -126,3 +126,58 @@ def test_withdraw_without_requesting_exit_rejected():
         vm.sender = seller
         with vm.expect_revert("Exit has not been requested"):
             sentinel.withdraw_remaining_bond()
+
+
+# ------------------------------------------------------------------
+# Regression coverage: a covenant stuck in PENDING_BOND (min_bond never
+# reached) must have a real recovery path. An earlier version of
+# request_exit() only accepted STATUS_ACTIVE, meaning any GEN already sent
+# via fund_bond() while PENDING_BOND was permanently stranded -- exactly the
+# "no bounded escape hatch" failure class GenLayer reviewers have rejected
+# real projects for.
+# ------------------------------------------------------------------
+
+def test_request_exit_allowed_from_pending_bond():
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        vm.sender = seller
+        sentinel = deploy_contract(SENTINEL_PATH, vm, "Service", ENDPOINT, SPEC, 1000, 3000)
+        vm.value = 1000  # short of min_bond -- stays pending_bond
+        sentinel.fund_bond()
+        assert sentinel.get_covenant_info()["status"] == "pending_bond"
+
+        vm.value = 0
+        sentinel.request_exit()
+        assert sentinel.get_covenant_info()["status"] == "exiting"
+
+
+def test_withdraw_recovers_stranded_pending_bond_funds_after_cooldown():
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        vm.sender = seller
+        sentinel = deploy_contract(SENTINEL_PATH, vm, "Service", ENDPOINT, SPEC, 1000, 3000)
+        warp_now(vm, "2026-01-01T00:00:00Z")
+        vm.value = 1000
+        sentinel.fund_bond()
+
+        vm.value = 0
+        sentinel.request_exit()
+        warp_now(vm, "2026-01-04T00:00:01Z")  # 72h + 1s later
+        sentinel.withdraw_remaining_bond()
+
+        info = sentinel.get_covenant_info()
+        assert info["bond"] == "0"
+        assert info["status"] == "exited"
+
+
+def test_request_exit_from_pending_bond_rejects_non_seller():
+    vm = VMContext()
+    seller, stranger = create_test_addresses(2)
+    with vm.activate():
+        vm.sender = seller
+        sentinel = deploy_contract(SENTINEL_PATH, vm, "Service", ENDPOINT, SPEC, 1000, 3000)
+        vm.sender = stranger
+        with vm.expect_revert("Only the seller"):
+            sentinel.request_exit()

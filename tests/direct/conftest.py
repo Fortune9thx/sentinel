@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from gltest.direct import deploy_contract as _raw_deploy_contract
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
 SENTINEL_PATH = CONTRACTS_DIR / "Sentinel.py"
@@ -76,6 +77,21 @@ def warp_now(vm, iso_timestamp: str) -> None:
     gl = sys.modules.get("genlayer.gl")
     if gl is not None and getattr(gl, "message_raw", None) is not None:
         gl.message_raw["datetime"] = iso_timestamp
+
+
+def deploy_contract(contract_path, vm, *args, **kwargs):
+    """Wraps gltest.direct.deploy_contract, always pinning sdk_version to the
+    known-good, fully-cached v0.2.16 build matching this contract's own
+    `Depends` header hash. Without this, gltest's auto-version-detection
+    tries to resolve GitHub's "latest" release first -- confirmed, dated gap
+    from a prior GenLayer project on this stack: that resolution fails under
+    GitHub API rate-limiting (or when "latest" no longer ships the expected
+    asset name) and falls back to an incomplete/corrupt local cache bucket,
+    producing a WASM-level "unexpected end of memory" error at contract-load
+    time that has nothing to do with the contract's own code. Pinning here
+    once means every test file gets the fix without touching each call site."""
+    kwargs.setdefault("sdk_version", "v0.2.16")
+    return _raw_deploy_contract(contract_path, vm, *args, **kwargs)
 
 
 def to_hex(addr) -> str:

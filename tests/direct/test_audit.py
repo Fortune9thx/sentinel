@@ -11,9 +11,9 @@ the resulting breach/slash/claims-pool mechanics.
 
 import json
 
-from gltest.direct import VMContext, deploy_contract, create_test_addresses
+from gltest.direct import VMContext, create_test_addresses
 
-from conftest import SENTINEL_PATH, to_hex, warp_now
+from conftest import SENTINEL_PATH, deploy_contract, to_hex, warp_now
 
 SPEC = "99.9% uptime, JSON responses only, no error codes in the body."
 ENDPOINT = "https://example.com/status"
@@ -102,9 +102,36 @@ def test_audit_fails_closed_when_confidence_below_threshold():
         vm.sender = seller
         audit_id = sentinel.audit()
 
+        # Regression test: an earlier version of this contract left
+        # record["outcome"] as the model's raw "violation" claim even though
+        # confidence was below threshold and nothing counted -- silently
+        # misrepresenting audit history to anyone reading get_audits() or
+        # the frontend. The stored outcome must say "inconclusive" here, not
+        # "violation", even though the model's own compliant/confidence
+        # values are preserved for transparency.
         record = sentinel.get_audit(audit_id)
-        assert record["outcome"] == "violation"
+        assert record["outcome"] == "inconclusive"
+        assert record["compliant"] is False
+        assert record["confidence"] == "0.3"
         assert sentinel.get_covenant_info()["consecutive_failures"] == "0"
+
+
+def test_audit_records_inconclusive_for_low_confidence_compliant_verdict_too():
+    """Same fix, other direction: a low-confidence COMPLIANT claim must also
+    be stored as inconclusive, not as a compliant record implying the streak
+    was genuinely reset with confidence."""
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        sentinel = _deploy_active(vm, seller)
+        _mock_endpoint(vm, '{"status": "ok"}')
+        _mock_verdict(vm, True, "0.4", "Looks fine, but hard to tell.")
+        vm.sender = seller
+        audit_id = sentinel.audit()
+
+        record = sentinel.get_audit(audit_id)
+        assert record["outcome"] == "inconclusive"
+        assert record["compliant"] is True
 
 
 def test_three_consecutive_violations_trigger_a_breach_and_slash():

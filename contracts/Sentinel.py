@@ -308,11 +308,19 @@ class Sentinel(gl.Contract):
 
     @gl.public.write.payable
     def fund_bond(self) -> None:
-        """Permissionless top-up -- anyone can add to a covenant's bond, not
-        only the seller (a seller's platform, a co-signer, or a confident
-        buyer might all reasonably want to). Activation to ACTIVE happens
+        """Seller-only. An earlier version allowed anyone to top up a
+        covenant's bond, reasoning that "more bond is strictly good for
+        beneficiaries" -- true for beneficiaries, but not for the funder:
+        withdraw_remaining_bond() pays the entire remaining bond to the
+        seller alone, with no per-funder accounting. A non-seller top-up was
+        therefore an irrevocable, unenforceable gift to the seller with no
+        path back to the person who sent it. Restricting to the seller
+        removes that ambiguity entirely rather than half-solving it with
+        partial refund bookkeeping. Activation to ACTIVE happens
         automatically, exactly once, the moment the bond first clears
         min_bond -- no separate privileged step."""
+        if gl.message.sender_address.as_hex != self.seller.as_hex:
+            raise gl.vm.UserError("Only the seller may fund the bond.")
         if self.status not in (STATUS_PENDING_BOND, STATUS_ACTIVE, STATUS_EXITING):
             raise gl.vm.UserError("This covenant is no longer accepting bond.")
         amount = int(gl.message.value)
@@ -487,8 +495,18 @@ shape:
             self.unreachable_streak = u256(0)
             self.first_unreachable_at = u256(0)
             self.consecutive_failures = u256(0)
-        # else: confidence below threshold on a compliant/violation call --
-        # inconclusive, fail-closed. No streak movement in either direction.
+        else:
+            # Confidence below threshold on a compliant/violation call --
+            # fail-closed, no streak movement in either direction. The
+            # stored record must say so explicitly: leaving `record["outcome"]`
+            # as the model's raw "compliant"/"violation" claim here (an
+            # earlier version of this contract did exactly that) would
+            # silently misrepresent audit history -- a reader of get_audits()
+            # would see a full "violation" entry for an audit that actually
+            # had zero consequence. The model's raw compliant/confidence
+            # values are kept in the record for transparency; only the
+            # outcome label changes.
+            record["outcome"] = AUDIT_INCONCLUSIVE
 
         record["breach_id"] = breach_id
         self.audit_data[audit_id] = json.dumps(record)
@@ -582,10 +600,19 @@ shape:
 
     @gl.public.write
     def request_exit(self) -> None:
+        """Allowed from PENDING_BOND as well as ACTIVE. A covenant whose
+        min_bond is never reached (funding stalls, or the seller simply
+        changes their mind) previously had NO way out of PENDING_BOND at
+        all -- request_exit() required ACTIVE, so any GEN already sent via
+        fund_bond() was permanently stranded with zero recovery path. That
+        is exactly the "bounded escape hatch" failure class GenLayer
+        reviewers have rejected projects for elsewhere: a real fund-safety
+        bug, not a hypothetical one, since it required no adversarial actor
+        at all -- just ordinary funding falling short."""
         if gl.message.sender_address.as_hex != self.seller.as_hex:
             raise gl.vm.UserError("Only the seller may request exit.")
-        if self.status != STATUS_ACTIVE:
-            raise gl.vm.UserError("Covenant is not active.")
+        if self.status not in (STATUS_PENDING_BOND, STATUS_ACTIVE):
+            raise gl.vm.UserError("Covenant cannot exit from its current status.")
         self.status = STATUS_EXITING
         self.exit_requested_at = u256(_consensus_now())
 

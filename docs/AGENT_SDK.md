@@ -89,7 +89,7 @@ const tx = await client.waitForTransactionReceipt({ hash });
 
 | Method | Kind | Args | Returns |
 | --- | --- | --- | --- |
-| `fund_bond` | payable | — | — (permissionless top-up, auto-activates) |
+| `fund_bond` | payable | — | — (seller-only top-up, auto-activates) |
 | `register_as_beneficiary` | write | — | — (permissionless, free) |
 | `audit` | write | — | `str` (audit id) |
 | `claim_slash_share` | write | `breach_id: str` | — |

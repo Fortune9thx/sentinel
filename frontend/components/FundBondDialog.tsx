@@ -57,9 +57,8 @@ export function FundBondDialog({
         <DialogHeader>
           <DialogTitle>Fund the bond</DialogTitle>
           <DialogDescription>
-            Anyone can add to this covenant&rsquo;s bond — more bond is strictly good for the beneficiaries it
-            protects. If this covenant hasn&rsquo;t reached its minimum bond yet, it activates automatically the
-            moment your top-up crosses that threshold.
+            Add to your covenant&rsquo;s bond. If it hasn&rsquo;t reached its minimum bond yet, it activates
+            automatically the moment this top-up crosses that threshold.
           </DialogDescription>
         </DialogHeader>
 

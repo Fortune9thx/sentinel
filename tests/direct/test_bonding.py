@@ -1,11 +1,11 @@
 """
 Direct-mode tests for Sentinel construction and fund_bond() -- the
-permissionless, auto-activating bond-funding path.
+seller-only, auto-activating bond-funding path.
 """
 
-from gltest.direct import VMContext, deploy_contract, create_test_addresses
+from gltest.direct import VMContext, create_test_addresses
 
-from conftest import SENTINEL_PATH, to_hex
+from conftest import SENTINEL_PATH, deploy_contract, to_hex
 
 SPEC = "99.9% uptime, 200ms p95 latency, JSON responses only."
 
@@ -72,17 +72,21 @@ def test_fund_bond_crossing_min_bond_activates_automatically():
         assert info["status"] == "active"
 
 
-def test_fund_bond_is_permissionless():
-    """Anyone -- not only the seller -- can top up a covenant's bond; more
-    bond is strictly good for the buyers it protects."""
+def test_fund_bond_rejects_non_seller():
+    """fund_bond() is seller-only. A permissionless version was tested here
+    previously, but withdraw_remaining_bond() pays the ENTIRE remaining bond
+    to the seller alone with no per-funder accounting -- a non-seller top-up
+    was an irrevocable, unenforceable gift to the seller, not something
+    "strictly good" for the funder. Restricting to the seller removes that
+    ambiguity instead of leaving it as a trap."""
     vm = VMContext()
     seller, backer = create_test_addresses(2)
     with vm.activate():
         sentinel = _deploy(vm, seller)
         vm.sender = backer
         vm.value = 3000
-        sentinel.fund_bond()
-        assert sentinel.get_covenant_info()["status"] == "active"
+        with vm.expect_revert("Only the seller may fund the bond"):
+            sentinel.fund_bond()
 
 
 def test_fund_bond_rejects_zero_value():
@@ -97,8 +101,9 @@ def test_fund_bond_rejects_zero_value():
 
 
 def test_fund_bond_stays_available_while_exiting():
-    """A generous late top-up should still be possible during the exit
-    cooldown -- it can only ever help buyers, never used to game anything."""
+    """A late top-up from the seller should still be possible during the
+    exit cooldown -- it can only ever help beneficiaries, never used to
+    game anything."""
     vm = VMContext()
     seller, = create_test_addresses(1)
     with vm.activate():

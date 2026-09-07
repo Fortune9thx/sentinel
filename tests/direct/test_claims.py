@@ -3,9 +3,9 @@ Direct-mode tests for claim_slash_share() -- the pull-based payout for a
 confirmed breach's eligible beneficiaries.
 """
 
-from gltest.direct import VMContext, deploy_contract, create_test_addresses
+from gltest.direct import VMContext, create_test_addresses
 
-from conftest import SENTINEL_PATH, to_hex, warp_now
+from conftest import SENTINEL_PATH, deploy_contract, to_hex, warp_now
 
 SPEC = "99.9% uptime."
 ENDPOINT = "https://example.com/status"

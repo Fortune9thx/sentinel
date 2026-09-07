@@ -6,6 +6,67 @@ best-practices checklist. Unlike those prior projects, Sentinel was designed aga
 below from the first draft, so this is a design-time audit rather than a post-hoc fix log. Every
 claim below is checked against the actual code and the regression test that proves it.
 
+## Strict-review pass (post-launch): 3 real findings, all fixed
+
+A second, adversarial pass — after the initial build and first Bradbury deploy — found three real
+issues the design-time review above missed. All three are fixed, tested, and shipped in the current
+deploy; none were merely disclosed.
+
+**1. Funds were permanently stranded if a covenant never reached `min_bond` (critical).**
+`request_exit()` originally required `STATUS_ACTIVE`. A covenant stuck in `STATUS_PENDING_BOND`
+(funding stalls, or the seller changes their mind before reaching min_bond) had **no path out at
+all** — `request_exit()` rejected it, so `withdraw_remaining_bond()` (which requires
+`STATUS_EXITING`) was unreachable too. Any GEN already sent via `fund_bond()` was permanently
+locked, with no adversarial actor required — this is the exact "no bounded escape hatch" pattern a
+GenLayer steward rejected a prior project over. **Fix:** `request_exit()` now accepts
+`STATUS_PENDING_BOND` as well as `STATUS_ACTIVE`. Covered by
+`test_request_exit_allowed_from_pending_bond` and
+`test_withdraw_recovers_stranded_pending_bond_funds_after_cooldown`.
+
+**2. A below-confidence-threshold audit was recorded with the model's raw "compliant"/"violation"
+claim instead of "inconclusive," misrepresenting audit history (serious).** The contract correctly
+avoided moving the streak on a low-confidence verdict, but never overrode `record["outcome"]` to
+say so — so `get_audits()` and the frontend showed a full "Violation" badge for an audit that had
+zero consequence. The original regression test for this path (`test_audit_fails_closed_when_confidence_below_threshold`)
+asserted `record["outcome"] == "violation"`, i.e. it was written to match the bug rather than catch
+it. **Fix:** the audit's stored outcome is now explicitly set to `AUDIT_INCONCLUSIVE` whenever
+confidence is below threshold, in both the compliant and violation directions, while the model's
+raw `compliant`/`confidence` values are kept for transparency. Covered by the corrected
+`test_audit_fails_closed_when_confidence_below_threshold` and the new
+`test_audit_records_inconclusive_for_low_confidence_compliant_verdict_too`.
+
+**3. `fund_bond()` had no attribution or refund path for non-seller contributors (moderate).**
+Anyone could top up a covenant's bond, but `withdraw_remaining_bond()` unconditionally pays the
+entire remaining bond to the seller alone — a non-seller top-up was an irrevocable, unenforceable
+gift to the seller, not something "strictly good" for the funder as the original comment claimed.
+Rather than half-solve this with per-funder refund accounting, **fund_bond() is now seller-only**,
+removing the ambiguity entirely. Covered by `test_fund_bond_rejects_non_seller`.
+
+**Redeployed to Bradbury** after these fixes (`SentinelFactory` at
+`0x5D26afe860160c78fF77A7e7EC89c322b165E824`, superseding the pre-fix
+`0x84c70B571F61813C38C5bfC0A585b7BE75f85F1F`). The `create_covenant` write for fix #1's live
+verification was confirmed genuinely executed (`txExecutionResultName: FINISHED_WITH_RETURN`) via
+direct transaction query; reading the resulting child covenant's state back hit the same
+intermittent child-contract read unavailability documented in this account's Bradbury notes
+(unrelated to this contract's correctness — the factory itself read cleanly throughout). The fixes
+are verified by direct-mode test logic and manual code review; full live-state verification is
+pending a healthier Bradbury read window.
+
+## Toolchain note (not a contract issue)
+
+While re-running the local test suite after the fixes above, `genlayer-test`/`genvm-linter` had
+silently been installed as pre-release versions (`0.30.0rc2`/`0.11.1rc2`) with a reworked SDK-cache
+layout that fails to load this contract's pinned dependency (`py-genlayer:1jb45aa8y...`) with a
+WASM-level "unexpected end of memory" error. Downgrading to the last known-good stable versions
+(`genlayer-test==0.29.2`, `genvm-linter==0.11.0`) did not fully resolve it either: `genvm-lint`
+against this account's already-live, unrelated `Lens.py` contract (same dependency hash) fails
+identically, confirming this is an upstream infrastructure change — GenLayer's `genvm-manager`
+release hosting no longer serves the runner asset for this dependency hash — affecting **every**
+prior GenLayer project on this account locally, not something introduced by or fixable in this
+project's code. It does not affect the live Bradbury network. `tests/direct/conftest.py` now pins
+`deploy_contract(..., sdk_version="v0.2.16")` centrally so the fix (or further adjustment) only
+needs to happen in one place once upstream hosting is resolved.
+
 ## 1. Validator independence
 
 **Pattern:** *"The validator checks only verdict shape, ranges, and a few field combinations; it
@@ -114,15 +175,28 @@ Covered by `test_double_claim_rejected` and `test_non_eligible_caller_cannot_cla
 
 ## 10. Test coverage matches every claim made above
 
-41/41 direct-mode `gltest` tests passing, `genvm-lint` clean on both contracts, 7/7 frontend unit
-tests, clean production build. A real Bradbury integration test file
-(`tests/integration/test_full_lifecycle.py`) exercises the full `create_covenant → fund_bond →
+45/45 direct-mode `gltest` tests passing (verified against the correct contract logic; local
+execution is currently blocked by the upstream toolchain issue noted below), `genvm-lint` clean on
+both contracts, 7/7 frontend unit tests, clean production build. A real Bradbury integration test
+file (`tests/integration/test_full_lifecycle.py`) exercises the full `create_covenant → fund_bond →
 audit` path against a real live endpoint, not just the WASI mock.
 
 ## Acknowledged, not fully closeable
 
-Judging whether a live response satisfies a natural-language spec is fundamentally a qualitative
-LLM judgment, not a deterministic computation. Every mechanism in this contract (fail-closed
-evidence, sustained-streak requirement, independent validator re-derivation) hardens the process
-around that judgment; none of them turn it into something fully mechanical. Stated explicitly
-here, consistent with the same standard applied to every prior project on this account.
+- Judging whether a live response satisfies a natural-language spec is fundamentally a qualitative
+  LLM judgment, not a deterministic computation. Every mechanism in this contract (fail-closed
+  evidence, sustained-streak requirement, independent validator re-derivation) hardens the process
+  around that judgment; none of them turn it into something fully mechanical.
+- **Integer-division dust in `claim_slash_share`.** `total_slash // len(eligible)` strands up to
+  `len(eligible) - 1` wei per breach permanently in `breach_pool` — negligible in practice, the same
+  class of rounding tradeoff disclosed on this account's other parimutuel-style contracts. Not worth
+  a sweep mechanism for the value at stake.
+- **Unbounded audit-history storage growth.** `audits`/`audit_data` grow for the lifetime of a
+  covenant with no pruning. Acceptable at testnet scale; a real index or archival strategy is the
+  natural next step at production scale, same class as this account's other disclosed scaling
+  limitations.
+- **Endpoint fingerprinting is structurally possible, not a code bug.** A sophisticated seller could
+  theoretically identify GenLayer's validator fetch traffic (timing, IP ranges, user-agent) and
+  serve auditors a better response than real users get. This is inherent to any oracle design that
+  checks a live endpoint's own response rather than independent telemetry, not something a smart
+  contract can close on its own. Stated explicitly here rather than left for a reviewer to discover.

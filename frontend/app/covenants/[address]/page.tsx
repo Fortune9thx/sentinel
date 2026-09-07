@@ -164,9 +164,11 @@ export default function CovenantDetailPage() {
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => setFundOpen(true)}>
-            Fund bond
-          </Button>
+          {isSeller && info.status !== "exited" && (
+            <Button variant="secondary" onClick={() => setFundOpen(true)}>
+              Fund bond
+            </Button>
+          )}
           {!isBeneficiary && (
             <Button
               variant="secondary"
@@ -208,7 +210,7 @@ export default function CovenantDetailPage() {
       {isSeller && info.status !== "exited" && (
         <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-border-strong bg-surface p-4">
           <p className="text-sm text-fg-secondary">Seller controls:</p>
-          {info.status === "active" && (
+          {(info.status === "active" || info.status === "pending_bond") && (
             <Button
               variant="outline"
               size="sm"
