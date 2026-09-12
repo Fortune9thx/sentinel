@@ -1,5 +1,5 @@
 import { getDefaultConfig } from "@rainbow-me/rainbowkit";
-import { testnetBradbury } from "genlayer-js/chains";
+import { studioDevnet } from "genlayer-js/chains";
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
 
@@ -18,6 +18,6 @@ export const wagmiConfig = getDefaultConfig({
   // fall back to a placeholder so the app (and every non-WalletConnect
   // connector) keeps working.
   projectId: projectId || "00000000000000000000000000000000",
-  chains: [testnetBradbury],
+  chains: [studioDevnet],
   ssr: true,
 });

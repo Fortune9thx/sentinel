@@ -13,7 +13,12 @@
  *     npx tsx deploy/001_deploy_sentinel_factory.ts [network]
  *
  * network defaults to "bradbury" (testnetBradbury). Pass "studio" for
- * studionet, or "asimov" for testnetAsimov.
+ * studionet, "asimov" for testnetAsimov, or "studio-dev" for studioDevnet
+ * (the Consensus v0.6 release-candidate network -- see
+ * docs.genlayer.com/developers/consensus-v06-migration; requires the whole
+ * genlayer-js@2.0.0-rc.1 / genlayer-test@0.30.0rc2 / genvm-linter@0.11.1rc2
+ * RC family and contracts pinned to the matching py-genlayer dependency
+ * hash, not the older stable-chain hash).
  *
  * This script is never run automatically by any other part of this repo.
  * A human runs it deliberately, with a deliberately-funded deployer key.
@@ -22,7 +27,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { createAccount, createClient } from "genlayer-js";
-import { studionet, testnetAsimov, testnetBradbury } from "genlayer-js/chains";
+import { studionet, studioDevnet, testnetAsimov, testnetBradbury } from "genlayer-js/chains";
 import { TransactionStatus } from "genlayer-js/types";
 import { Wallet } from "ethers";
 
@@ -35,6 +40,7 @@ const CONTRACTS_TS_PATH = join(ROOT, "frontend", "lib", "contracts.ts");
 const NETWORKS = {
   bradbury: { chain: testnetBradbury, addressKey: "bradbury" as const },
   studio: { chain: studionet, addressKey: "studio" as const },
+  "studio-dev": { chain: studioDevnet, addressKey: "studioDev" as const },
   asimov: { chain: testnetAsimov, addressKey: "asimov" as const },
 };
 
@@ -109,9 +115,24 @@ async function main() {
     `Deploying SentinelFactory to ${network.chain.name} as ${account.address} (Sentinel.py source: ${sentinelSource.length} bytes, creation stake: ${creationStakeWei} wei)...`
   );
 
+  // Consensus v0.6 requires an explicit, non-zero fee value on every write
+  // (docs.genlayer.com/developers/consensus-v06-migration). Read the
+  // network's own current fee policy via the SDK's live estimate and
+  // submit the returned distribution/feeValue unchanged, rather than
+  // guessing gas manually.
+  let fees: Awaited<ReturnType<typeof client.estimateTransactionFees>> | undefined;
+  try {
+    fees = await client.estimateTransactionFees();
+    console.log(`  fee estimate: feeValue=${fees.feeValue} (network prices, 20% headroom)`);
+  } catch {
+    // Older/non-v0.6 networks (bradbury, studionet) don't require this and
+    // may not expose the estimate RPC method -- fall back to omitting fees.
+  }
+
   const hash = await client.deployContract({
     code: factorySource,
     args: [sentinelSource, creationStakeWei],
+    ...(fees ? { fees: { distribution: fees.distribution, feeValue: fees.feeValue } } : {}),
   });
   console.log(`Deploy tx: ${hash}`);
 
@@ -119,6 +140,15 @@ async function main() {
 
   if (transaction.statusName !== TransactionStatus.FINALIZED) {
     throw new Error(`Deployment did not finalize (status: ${transaction.statusName}).`);
+  }
+  // Consensus v0.6 requires checking both status AND execution result --
+  // status alone no longer confirms success (docs.genlayer.com/developers/
+  // consensus-v06-migration). FINALIZED status with a non-return execution
+  // result (e.g. a revert) is still a failed deployment.
+  if (transaction.txExecutionResultName !== "FINISHED_WITH_RETURN") {
+    throw new Error(
+      `Deployment finalized but did not return successfully (execution result: ${transaction.txExecutionResultName}).`
+    );
   }
 
   // genlayer-js@1.1.8's GenLayerTransaction type puts the deployed address

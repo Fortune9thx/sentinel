@@ -49,11 +49,11 @@ def _find_real_address_cls():
     cached SDK so tests key backers exactly the way the contract itself
     does."""
     cache_root = Path.home() / ".cache" / "gltest-direct" / "extracted"
-    for candidate in cache_root.glob("**/genlayer/py/types.py"):
+    for candidate in cache_root.glob("**/genlayer/types/__init__.py"):
         sdk_root = candidate.parents[2]
         if str(sdk_root) not in sys.path:
             sys.path.insert(0, str(sdk_root))
-        from genlayer.py.types import Address
+        from genlayer.types import Address
         return Address
     return None
 
@@ -62,21 +62,21 @@ _AddressCls = None
 
 
 def warp_now(vm, iso_timestamp: str) -> None:
-    """vm.warp() alone does not move a contract's notion of "now" once
-    already deployed: gltest's VMContext._refresh_gl_message (direct/vm.py)
-    updates gl.message_raw's sender/origin/value on every vm.sender/vm.value
-    change, but never touches gl.message_raw['datetime'] -- and the method
-    that would build a fresh copy including it, get_message_raw(), is dead
-    code, never called anywhere in the installed gltest package. So
-    gl.message_raw["datetime"], which Sentinel._consensus_now() reads by
-    deliberate design instead of Python's own datetime.now(), stays frozen
-    at whatever it was when the contract was first imported. Patched here,
-    scoped to tests only, matching the same gap documented in every prior
-    GenLayer project built on this stack."""
+    """STALE, now a safe no-op -- kept only so existing call sites don't
+    crash. Written against the pre-v0.3.0 API (gl.message_raw['datetime'],
+    accessed via the now-nonexistent `genlayer.gl` submodule); since the
+    contract migration to v0.3.0, _consensus_now() calls gl.vm.get_timestamp()
+    instead, which is NOT YET IMPLEMENTED in the installed gltest package's
+    direct-mode WASI mock at all (confirmed: zero references to
+    'GetTimestamp'/'get_timestamp' anywhere in the installed gltest source)
+    -- every call raises AttributeError: 'NoneType' object has no attribute
+    'timestamp' inside the contract itself. This blocks every direct-mode
+    test that deploys or calls a Sentinel method (32 of 54 as of this
+    finding) until gltest's mock adds GetTimestamp support -- a toolchain
+    gap, not a contract bug. Not worked around with an increasingly fragile
+    monkeypatch here; left honest and broken so it fails loudly rather than
+    silently testing the wrong thing."""
     vm.warp(iso_timestamp)
-    gl = sys.modules.get("genlayer.gl")
-    if gl is not None and getattr(gl, "message_raw", None) is not None:
-        gl.message_raw["datetime"] = iso_timestamp
 
 
 def deploy_contract(contract_path, vm, *args, **kwargs):
@@ -90,7 +90,7 @@ def deploy_contract(contract_path, vm, *args, **kwargs):
     producing a WASM-level "unexpected end of memory" error at contract-load
     time that has nothing to do with the contract's own code. Pinning here
     once means every test file gets the fix without touching each call site."""
-    kwargs.setdefault("sdk_version", "v0.2.16")
+    kwargs.setdefault("sdk_version", "v0.6.0-rc5")
     return _raw_deploy_contract(contract_path, vm, *args, **kwargs)
 
 

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import { createClient } from "genlayer-js";
-import { testnetBradbury } from "genlayer-js/chains";
+import { studioDevnet } from "genlayer-js/chains";
 import { TransactionStatus, ExecutionResult } from "genlayer-js/types";
 import type {
   GenLayerClient,
@@ -25,9 +25,42 @@ let _readOnlyClient: GenLayerClient<GenLayerChain> | null = null;
  */
 export function getReadOnlyClient(): GenLayerClient<GenLayerChain> {
   if (!_readOnlyClient) {
-    _readOnlyClient = createClient({ chain: testnetBradbury });
+    _readOnlyClient = createClient({ chain: studioDevnet });
   }
   return _readOnlyClient;
+}
+
+/**
+ * Consensus v0.6 (the protocol version Studio Devnet runs) requires an
+ * explicit, non-zero fee on every write/deploy -- omitting it throws
+ * `FeeValueMustBeNonZero`. This wraps writeContract/deployContract to fetch
+ * a live fee quote via estimateTransactionFees() and attach it automatically,
+ * so every call site doesn't need to remember this itself. Confirmed working
+ * live (real deploys/writes reaching FINALIZED/FINISHED_WITH_RETURN) via
+ * this exact pattern during backend verification -- see docs/AUDIT.md.
+ */
+export async function writeContractWithFees(
+  client: GenLayerClient<GenLayerChain>,
+  args: Parameters<GenLayerClient<GenLayerChain>["writeContract"]>[0]
+): Promise<`0x${string}`> {
+  const fees = await client.estimateTransactionFees();
+  const hash = await client.writeContract({
+    ...args,
+    fees: { distribution: fees.distribution, feeValue: fees.feeValue },
+  } as typeof args);
+  return hash as `0x${string}`;
+}
+
+export async function deployContractWithFees(
+  client: GenLayerClient<GenLayerChain>,
+  args: Parameters<GenLayerClient<GenLayerChain>["deployContract"]>[0]
+): Promise<`0x${string}`> {
+  const fees = await client.estimateTransactionFees();
+  const hash = await client.deployContract({
+    ...args,
+    fees: { distribution: fees.distribution, feeValue: fees.feeValue },
+  } as typeof args);
+  return hash as `0x${string}`;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -112,7 +145,7 @@ export function useGenLayerClient(): {
         if (cancelled) return;
         setClient(
           createClient({
-            chain: testnetBradbury,
+            chain: studioDevnet,
             account: address,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             provider: provider as any,

@@ -6,7 +6,10 @@
 networks:
   default: localnet
   localnet:
-  testnet_bradbury: {}
+  testnet_bradbury:
+    from: "${BRADBURY_DEPLOY_PRIVATE_KEY}"
+    accounts:
+      - "${BRADBURY_DEPLOY_PRIVATE_KEY}"
 
 paths:
   contracts: contracts

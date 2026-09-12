@@ -1,11 +1,15 @@
-# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# v0.3.0
+# { "Depends": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng" }
 
 import json
 import re
 from datetime import datetime
+from urllib.parse import urlsplit
+import ipaddress
 
-from genlayer import *
-import genlayer.gl as gl
+import genlayer as gl
+from genlayer.types import *
+from genlayer.storage import DynArray, TreeMap
 
 # ----------------------------------------------------------------------------
 # Constants
@@ -148,6 +152,50 @@ def _stringify_confidence(value) -> str:
     return str(max(0.0, min(1.0, parsed)))
 
 
+def _is_safe_endpoint_url(url_s: str) -> bool:
+    """SSRF guard: every validator independently fetches this URL server-side
+    via gl.nondet.web.render, so a caller-supplied endpoint pointed at an
+    internal/loopback/link-local target would make the whole validator set an
+    unwitting port-scanner/internal-request proxy. Rejects localhost/
+    *.localhost, literal IPv4/IPv6 hosts (including decimal/hex-encoded IPv4
+    forms ipaddress.ip_address() itself normalizes), private/loopback/
+    link-local/reserved IP ranges, explicit ports, and embedded credentials.
+    Assumes the caller already checked the http(s):// scheme prefix."""
+    try:
+        parts = urlsplit(url_s)
+    except ValueError:
+        return False
+    if parts.username or parts.password:
+        return False
+    if parts.port is not None:
+        return False
+    host = (parts.hostname or "").lower()
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    ):
+        return False
+    # A bare all-digit host with no IP parse (e.g. an overflow-range decimal
+    # form ipaddress rejects outright) is still an attempt at a numeric IP,
+    # not a real hostname -- reject it too rather than let it through as
+    # "not a recognized IP so presumably fine."
+    if ip is None and host.replace(".", "").isdigit():
+        return False
+    return True
+
+
 def _normalize_address(addr: str) -> str:
     """Every TreeMap in this contract keyed by an address string uses this as
     the ONLY key format. Address.as_hex is an EIP-55-style checksum (mixed
@@ -160,11 +208,18 @@ def _normalize_address(addr: str) -> str:
 
 
 def _consensus_now() -> int:
-    """Unix timestamp derived from the transaction's own message context
-    (gl.message_raw["datetime"], identical for every validator replaying
-    this transaction) rather than each node's local wall clock --
-    required for deterministic, consensus-safe timestamps."""
-    raw = gl.message_raw["datetime"]
+    """Unix timestamp via gl.message.raw["datetime"] -- decoded from the VM's
+    own startup message payload (already loaded locally, not a separate VM
+    syscall), identical for every validator replaying this transaction.
+    gl.vm.get_timestamp() is the documented v0.3.0 API for this but is
+    confirmed BROKEN on the current Studio Devnet runtime -- raises
+    `SystemError: 2: inval` inside gl_call_generic on every call, live-tested
+    via a real deploy attempt. gl.message.raw reads from data already present
+    in the VM's own entry payload (calldata.decode() of stdin, per the SDK's
+    own message.py source), not an additional VM request, so it does not
+    depend on whatever GetTimestamp-specific gap is causing get_timestamp()
+    to fail."""
+    raw = gl.message.raw["datetime"]
     return int(datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp())
 
 
@@ -179,7 +234,7 @@ class _Recipient:
         pass
 
 
-class Sentinel(gl.Contract):
+class Sentinel(gl.contract.Contract):
     """
     A single Covenant: a live, ongoing truth-bond for one seller's service
     endpoint. The seller posts a GEN bond and an advertised spec in plain
@@ -207,7 +262,7 @@ class Sentinel(gl.Contract):
     exiting the instant a bad streak starts.
 
     Deployed exclusively via SentinelFactory.create_covenant() ->
-    gl.deploy_contract. Storage uses only TreeMap[str, str] (JSON-encoded
+    gl.contract.deploy. Storage uses only TreeMap[str, str] (JSON-encoded
     values) and DynArray[str], matching the confirmed-safe pattern from
     every prior GenLayer project on this stack -- non-str TreeMap value
     types deploy successfully but become permanently unreadable on the
@@ -274,6 +329,8 @@ class Sentinel(gl.Contract):
         url_s = endpoint_url.strip()
         if not url_s or len(url_s) > MAX_URL_LEN or not (url_s.startswith("http://") or url_s.startswith("https://")):
             raise gl.vm.UserError(f"endpoint_url must be a non-empty http(s) URL, at most {MAX_URL_LEN} characters.")
+        if not _is_safe_endpoint_url(url_s):
+            raise gl.vm.UserError("endpoint_url must not target a localhost/private/internal address.")
         spec_s = _sanitize_input(spec, MAX_SPEC_LEN)
         if not spec_s:
             raise gl.vm.UserError("spec is required.")
@@ -444,7 +501,7 @@ shape:
                 return False
             return mine.get("compliant") == leader_data.get("compliant") and confidence_agrees
 
-        result = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
+        result = gl.vm.run_nondet(leader_fn, validator_fn)
 
         audit_id = str(int(self.audit_count))
         self.audit_count = u256(int(self.audit_count) + 1)

@@ -30,7 +30,7 @@ const STATUS_COPY: Partial<Record<TransactionStatus, string>> = {
   [TransactionStatus.ACCEPTED]: "Consensus reached — audit recorded",
   [TransactionStatus.APPEAL_COMMITTING]: "Consensus is being appealed — validators re-evaluating…",
   [TransactionStatus.APPEAL_REVEALING]: "Appeal round revealing votes…",
-  [TransactionStatus.READY_TO_FINALIZE]: "Ready to finalize…",
+  [TransactionStatus.LEADER_REVEALING]: "Leader revealing result…",
   [TransactionStatus.FINALIZED]: "Finalized on-chain",
   [TransactionStatus.UNDETERMINED]: "Consensus not reached",
   [TransactionStatus.CANCELED]: "Transaction canceled",
@@ -50,10 +50,10 @@ const STATUS_ORDER = [
   TransactionStatus.PROPOSING,
   TransactionStatus.COMMITTING,
   TransactionStatus.REVEALING,
+  TransactionStatus.LEADER_REVEALING,
   TransactionStatus.ACCEPTED,
   TransactionStatus.APPEAL_COMMITTING,
   TransactionStatus.APPEAL_REVEALING,
-  TransactionStatus.READY_TO_FINALIZE,
   TransactionStatus.FINALIZED,
 ];
 

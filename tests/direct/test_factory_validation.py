@@ -71,6 +71,74 @@ def test_create_covenant_rejects_bad_url():
             factory.create_covenant("API Service", "not-a-url", "99.9% uptime", 1000, 3000)
 
 
+def test_create_covenant_rejects_localhost_url():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        vm.value = 0
+        with vm.expect_revert("localhost/private/internal"):
+            factory.create_covenant("API Service", "http://localhost:8080/status", "99.9% uptime", 1000, 3000)
+
+
+def test_create_covenant_rejects_loopback_ip_url():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        vm.value = 0
+        with vm.expect_revert("localhost/private/internal"):
+            factory.create_covenant("API Service", "http://127.0.0.1/status", "99.9% uptime", 1000, 3000)
+
+
+def test_create_covenant_rejects_private_ip_url():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        vm.value = 0
+        with vm.expect_revert("localhost/private/internal"):
+            factory.create_covenant("API Service", "http://10.0.0.5/status", "99.9% uptime", 1000, 3000)
+
+
+def test_create_covenant_rejects_decimal_encoded_loopback_ip_url():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        vm.value = 0
+        # 2130706433 is the decimal encoding of 127.0.0.1 -- a classic SSRF
+        # bypass for naive string-based localhost blocklists.
+        with vm.expect_revert("localhost/private/internal"):
+            factory.create_covenant("API Service", "http://2130706433/status", "99.9% uptime", 1000, 3000)
+
+
+def test_create_covenant_rejects_embedded_credentials_url():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        vm.value = 0
+        with vm.expect_revert("localhost/private/internal"):
+            factory.create_covenant("API Service", "http://user:pass@example.com/status", "99.9% uptime", 1000, 3000)
+
+
+def test_create_covenant_rejects_explicit_port_url():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        vm.value = 0
+        with vm.expect_revert("localhost/private/internal"):
+            factory.create_covenant("API Service", "http://example.com:8080/status", "99.9% uptime", 1000, 3000)
+
+
 def test_create_covenant_rejects_missing_spec():
     vm = VMContext()
     owner, alice = create_test_addresses(2)

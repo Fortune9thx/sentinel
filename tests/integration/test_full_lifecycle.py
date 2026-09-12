@@ -9,12 +9,21 @@ withdraw_fees()'s successful-withdrawal path, which requires a real
 collected fee balance that only a genuine create_covenant deploy can produce.
 
 Requires a configured gltest.config.yaml pointing at a live node and funded
-test accounts. Run with: gltest tests/integration -v
+test accounts. Run with: gltest tests/integration -v --network testnet_bradbury
+
+Scope note: get_contract_factory is a plain importable function in the
+installed genlayer-test version, NOT an auto-injected pytest fixture --
+despite its name suggesting otherwise, and despite the same mistaken
+fixture-parameter usage having been written (and never actually run
+end-to-end) on a prior project on this stack. `accounts` yields real
+eth_account LocalAccount objects, which expose `.address`, not a bare
+string -- calling `.lower()` directly on one raises AttributeError.
 """
 
 from pathlib import Path
 
 import pytest
+from gltest import get_contract_factory
 
 CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
 SENTINEL_PATH = CONTRACTS_DIR / "Sentinel.py"
@@ -27,7 +36,7 @@ pytestmark = pytest.mark.integration
 
 
 @pytest.fixture(scope="module")
-def factory(get_contract_factory, accounts):
+def factory(accounts):
     """Deploy a fresh SentinelFactory with the real Sentinel.py source
     embedded, exactly as deploy/001_deploy_sentinel_factory.ts does for a
     real network deployment. A non-zero creation stake so withdraw_fees()
@@ -60,7 +69,7 @@ def test_factory_owner_is_informational_except_for_withdraw_fees(factory, accoun
     write (create_covenant) is intentionally permissionless, gated by the
     creation stake, not an allowlist."""
     deployer = accounts[0]
-    assert factory.get_owner().lower() == deployer.lower()
+    assert factory.get_owner().lower() == deployer.address.lower()
 
 
 def test_create_covenant_rejects_bad_url(factory, accounts):
@@ -86,7 +95,7 @@ def test_withdraw_fees_recovers_real_collected_stake(factory, accounts):
     assert int(factory.get_collected_fees()) == 0
 
 
-def test_fund_bond_and_audit_against_a_real_live_endpoint(factory, accounts, get_contract_factory):
+def test_fund_bond_and_audit_against_a_real_live_endpoint(factory, accounts):
     """The full real-network path: spawn a covenant, fund its bond past
     min_bond (auto-activating it), then run one genuine audit() against a
     real live URL -- exercising the actual gl.nondet.web.render + LLM

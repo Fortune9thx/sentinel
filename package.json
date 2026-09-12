@@ -14,8 +14,8 @@
     "deploy:factory": "tsx deploy/001_deploy_sentinel_factory.ts"
   },
   "dependencies": {
-    "genlayer-js": "^1.1.8",
-    "ethers": "^6.13.5"
+    "ethers": "^6.13.5",
+    "genlayer-js": "^2.0.0-rc.1"
   },
   "devDependencies": {
     "tsx": "^4.19.0",

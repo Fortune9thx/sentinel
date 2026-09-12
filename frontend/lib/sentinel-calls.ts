@@ -1,6 +1,8 @@
-import type { GenLayerClient, GenLayerChain } from "genlayer-js/types";
+import type { GenLayerClient, GenLayerChain, GenLayerTransaction } from "genlayer-js/types";
 import { SENTINEL_FACTORY_METHODS, SENTINEL_METHODS } from "./sentinel-abi";
 import type { CovenantMeta, CovenantInfo, AuditRecord, BreachRecord } from "./sentinel-abi";
+import { writeContractWithFees, deployContractWithFees, pollConsensusStatus } from "./genlayer-client";
+import { SENTINEL_SOURCE } from "./sentinel-source";
 
 // ---------------------------------------------------------------------
 // SentinelFactory reads/writes. Return values are dicts/lists that
@@ -58,7 +60,40 @@ export async function fetchCollectedFees(
   return result as unknown as string;
 }
 
-export async function createCovenant(
+export async function withdrawFees(
+  client: GenLayerClient<GenLayerChain>,
+  factoryAddress: `0x${string}`
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: factoryAddress,
+    functionName: SENTINEL_FACTORY_METHODS.withdrawFees,
+    args: [],
+    value: 0n,
+  });
+}
+
+/**
+ * Covenant creation is a two-step flow, not a single create_covenant call:
+ *
+ * 1. Deploy Sentinel.py directly (a real top-level deploy transaction).
+ * 2. Register the deployed address with the factory via register_covenant.
+ *
+ * This deliberately bypasses SentinelFactory.create_covenant()'s own
+ * internal gl.contract.deploy() call -- Consensus v0.6's internal-message
+ * fee-allocation system currently rejects that path with
+ * `fee no_matching_allocation # internal`, a confirmed live, unresolved
+ * platform gap (see docs/AUDIT.md), not something fixable in this app's own
+ * code. register_covenant independently verifies the deployed address
+ * responds as a real Sentinel covenant (a live cross-contract view call)
+ * before registering it, rather than trusting caller-supplied metadata.
+ *
+ * onCovenantAddress fires as soon as the address is known (right after step
+ * 1 finalizes), before step 2 is even submitted -- callers can use this to
+ * update UI/navigation state without waiting for the full two-step flow to
+ * settle, since a confirmed deploy is itself strong evidence of success even
+ * if the registration step is still in flight.
+ */
+export async function createCovenantDirect(
   client: GenLayerClient<GenLayerChain>,
   factoryAddress: `0x${string}`,
   serviceName: string,
@@ -66,52 +101,36 @@ export async function createCovenant(
   spec: string,
   slashAmount: bigint,
   minBond: bigint,
-  value: bigint
+  creationStakeValue: bigint,
+  onCovenantAddress?: (address: `0x${string}`) => void
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
-    address: factoryAddress,
-    functionName: SENTINEL_FACTORY_METHODS.createCovenant,
+  const deployHash = await deployContractWithFees(client, {
+    code: SENTINEL_SOURCE,
     args: [serviceName, endpointUrl, spec, slashAmount, minBond],
-    value,
   });
-  return hash as `0x${string}`;
-}
-
-export async function withdrawFees(
-  client: GenLayerClient<GenLayerChain>,
-  factoryAddress: `0x${string}`
-): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
-    address: factoryAddress,
-    functionName: SENTINEL_FACTORY_METHODS.withdrawFees,
-    args: [],
-    value: 0n,
+  const deployTx: GenLayerTransaction = await pollConsensusStatus(client, deployHash, () => {}, {
+    requireFinalized: true,
   });
-  return hash as `0x${string}`;
-}
-
-/**
- * create_covenant's write-transaction result exposes ACCEPTED/FINALIZED
- * status, not a decoded method return value in a stable, documented shape
- * -- so rather than depend on undocumented transaction-result decoding,
- * resolve the newly-deployed covenant address the reliable way:
- * covenant_addresses is an append-only registry, so the new covenant is
- * whatever appears at index `beforeCount` once the list grows past it.
- * Retries with a short delay to absorb the same post-ACCEPTED read lag
- * documented for fresh contract state elsewhere in this stack.
- */
-export async function waitForNewCovenant(
-  client: GenLayerClient<GenLayerChain>,
-  factoryAddress: `0x${string}`,
-  beforeCount: number,
-  { retries = 10, intervalMs = 3000 }: { retries?: number; intervalMs?: number } = {}
-): Promise<string> {
-  for (let attempt = 0; attempt < retries; attempt++) {
-    const covenants = await fetchCovenants(client, factoryAddress);
-    if (covenants.length > beforeCount) return covenants[beforeCount];
-    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  if (deployTx.txExecutionResultName !== "FINISHED_WITH_RETURN") {
+    throw new Error(
+      `Covenant deployment reached consensus but did not return successfully (execution result: ${
+        deployTx.txExecutionResultName ?? "unknown"
+      }).`
+    );
   }
-  throw new Error("Timed out waiting for the new covenant to appear in the registry.");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const covenantAddress = (deployTx.txDataDecoded as any)?.contractAddress as `0x${string}` | undefined;
+  if (!covenantAddress) {
+    throw new Error("Deployment succeeded but no contract address was found in the receipt.");
+  }
+  onCovenantAddress?.(covenantAddress);
+
+  return writeContractWithFees(client, {
+    address: factoryAddress,
+    functionName: SENTINEL_FACTORY_METHODS.registerCovenant,
+    args: [covenantAddress],
+    value: creationStakeValue,
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -204,26 +223,24 @@ export async function fundBond(
   covenantAddress: `0x${string}`,
   value: bigint
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
+  return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.fundBond,
     args: [],
     value,
   });
-  return hash as `0x${string}`;
 }
 
 export async function registerAsBeneficiary(
   client: GenLayerClient<GenLayerChain>,
   covenantAddress: `0x${string}`
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
+  return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.registerAsBeneficiary,
     args: [],
     value: 0n,
   });
-  return hash as `0x${string}`;
 }
 
 // audit() is the heaviest call in this contract: a live web fetch + LLM
@@ -239,14 +256,13 @@ export async function runAudit(
   client: GenLayerClient<GenLayerChain>,
   covenantAddress: `0x${string}`
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
+  return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.audit,
     args: [],
     value: 0n,
     consensusMaxRotations: AUDIT_MAX_ROTATIONS,
   });
-  return hash as `0x${string}`;
 }
 
 export async function claimSlashShare(
@@ -254,37 +270,34 @@ export async function claimSlashShare(
   covenantAddress: `0x${string}`,
   breachId: string
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
+  return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.claimSlashShare,
     args: [breachId],
     value: 0n,
   });
-  return hash as `0x${string}`;
 }
 
 export async function requestExit(
   client: GenLayerClient<GenLayerChain>,
   covenantAddress: `0x${string}`
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
+  return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.requestExit,
     args: [],
     value: 0n,
   });
-  return hash as `0x${string}`;
 }
 
 export async function withdrawRemainingBond(
   client: GenLayerClient<GenLayerChain>,
   covenantAddress: `0x${string}`
 ): Promise<`0x${string}`> {
-  const hash = await client.writeContract({
+  return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.withdrawRemainingBond,
     args: [],
     value: 0n,
   });
-  return hash as `0x${string}`;
 }

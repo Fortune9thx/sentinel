@@ -46,6 +46,33 @@ def test_deploy_rejects_bad_endpoint_url():
             deploy_contract(SENTINEL_PATH, vm, "Service", "not-a-url", SPEC, 1000, 3000)
 
 
+def test_deploy_rejects_localhost_url():
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        vm.sender = seller
+        with vm.expect_revert("localhost/private/internal"):
+            deploy_contract(SENTINEL_PATH, vm, "Service", "http://localhost/status", SPEC, 1000, 3000)
+
+
+def test_deploy_rejects_private_ip_url():
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        vm.sender = seller
+        with vm.expect_revert("localhost/private/internal"):
+            deploy_contract(SENTINEL_PATH, vm, "Service", "http://192.168.1.1/status", SPEC, 1000, 3000)
+
+
+def test_deploy_rejects_decimal_encoded_loopback_ip_url():
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        vm.sender = seller
+        with vm.expect_revert("localhost/private/internal"):
+            deploy_contract(SENTINEL_PATH, vm, "Service", "http://2130706433/status", SPEC, 1000, 3000)
+
+
 def test_fund_bond_partial_stays_pending():
     vm = VMContext()
     seller, = create_test_addresses(1)

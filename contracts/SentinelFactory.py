@@ -1,10 +1,14 @@
-# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# v0.3.0
+# { "Depends": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng" }
 
 import json
 from datetime import datetime
+from urllib.parse import urlsplit
+import ipaddress
 
-from genlayer import *
-import genlayer.gl as gl
+import genlayer as gl
+from genlayer.types import *
+from genlayer.storage import DynArray, TreeMap
 
 MAX_URL_LEN = 500
 MAX_NAME_LEN = 140
@@ -12,9 +16,10 @@ MAX_SPEC_LEN = 1500
 
 
 def _consensus_now() -> int:
-    """Unix timestamp from the transaction's own message context (identical
-    for every validator), not each node's local wall clock."""
-    raw = gl.message_raw["datetime"]
+    """Unix timestamp via gl.message.raw["datetime"] -- see Sentinel.py's
+    identical copy of this helper for why gl.vm.get_timestamp() is avoided
+    (confirmed broken live on Studio Devnet: raises `SystemError: 2: inval`)."""
+    raw = gl.message.raw["datetime"]
     return int(datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp())
 
 
@@ -25,6 +30,43 @@ def _normalize_address(addr: str) -> str:
     it against raw unnormalized caller input is a real, confirmed GenLayer
     rejection pattern)."""
     return addr.strip().lower()
+
+
+def _is_safe_endpoint_url(url_s: str) -> bool:
+    """SSRF guard -- see Sentinel.py's identical copy of this helper for the
+    full rationale. Duplicated rather than imported because each contract
+    file is deployed as a self-contained source string, matching every other
+    duplicated helper in this file (_consensus_now, _normalize_address,
+    _Recipient)."""
+    try:
+        parts = urlsplit(url_s)
+    except ValueError:
+        return False
+    if parts.username or parts.password:
+        return False
+    if parts.port is not None:
+        return False
+    host = (parts.hostname or "").lower()
+    if not host:
+        return False
+    if host == "localhost" or host.endswith(".localhost"):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+    if ip is not None and (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_reserved
+        or ip.is_multicast
+        or ip.is_unspecified
+    ):
+        return False
+    if ip is None and host.replace(".", "").isdigit():
+        return False
+    return True
 
 
 @gl.evm.contract_interface
@@ -38,12 +80,12 @@ class _Recipient:
         pass
 
 
-class SentinelFactory(gl.Contract):
+class SentinelFactory(gl.contract.Contract):
     """
     Registry + on-chain factory for Sentinel covenants.
 
     Deploys a fresh `Sentinel` contract instance per covenant via
-    gl.deploy_contract, mirroring the same verified factory pattern used
+    gl.contract.deploy, mirroring the same verified factory pattern used
     across every prior GenLayer project on this stack. Registry metadata is
     intentionally read-only creation-time data (service name, endpoint,
     spec, seller) -- live status/bond/audit state is never mirrored here and
@@ -95,6 +137,8 @@ class SentinelFactory(gl.Contract):
         url_s = endpoint_url.strip()
         if not url_s or len(url_s) > MAX_URL_LEN or not (url_s.startswith("http://") or url_s.startswith("https://")):
             raise gl.vm.UserError(f"endpoint_url must be a non-empty http(s) URL, at most {MAX_URL_LEN} characters.")
+        if not _is_safe_endpoint_url(url_s):
+            raise gl.vm.UserError("endpoint_url must not target a localhost/private/internal address.")
         if not spec or len(spec) > MAX_SPEC_LEN:
             raise gl.vm.UserError(f"spec is required and must be at most {MAX_SPEC_LEN} characters.")
         if int(slash_amount) <= 0:
@@ -103,10 +147,10 @@ class SentinelFactory(gl.Contract):
             raise gl.vm.UserError("min_bond must be at least slash_amount.")
 
         registered = len(self.covenant_addresses)
-        contract_address = gl.deploy_contract(
+        contract_address = gl.contract.deploy(
             code=self.sentinel_code.encode("utf-8"),
             args=[service_name, url_s, spec, slash_amount, min_bond],
-            salt_nonce=registered + 1,
+            salt_nonce=u256(registered + 1),
         )
         address_hex = contract_address.as_hex
         self.covenant_addresses.append(address_hex)
@@ -126,6 +170,52 @@ class SentinelFactory(gl.Contract):
             "creation_stake": str(amount),
         }
         self.covenant_meta[_normalize_address(address_hex)] = json.dumps(meta)
+        return address_hex
+
+    @gl.public.write.payable
+    def register_covenant(self, address: str) -> str:
+        """Registers an already-deployed Sentinel covenant, bypassing the
+        internal gl.contract.deploy() call create_covenant() uses --
+        Consensus v0.6's internal-message fee-allocation system currently
+        rejects that path (`fee no_matching_allocation # internal`,
+        confirmed live on Studio Devnet, an unresolved upstream platform
+        gap, not a bug in this contract). The covenant must already be
+        deployed directly (a real top-level deploy transaction, confirmed
+        working) using this factory's own embedded sentinel_code. Rather
+        than trusting caller-supplied metadata blindly, this reads the
+        covenant's own live state via a real cross-contract view call to
+        confirm it responds with the expected Sentinel shape before
+        registering it."""
+        if gl.message.value < self.creation_stake:
+            raise gl.vm.UserError(
+                f"Creation stake too low: sent {gl.message.value}, requires {self.creation_stake}"
+            )
+        target = Address(address)
+        address_hex = target.as_hex
+        norm = _normalize_address(address_hex)
+        if self.covenant_meta.get(norm, ""):
+            raise gl.vm.UserError("Covenant already registered.")
+
+        proxy = gl.contract.get_at(target)
+        info = proxy.view().get_covenant_info()
+        if not isinstance(info, dict) or "status" not in info or "address_seller" not in info:
+            raise gl.vm.UserError("Address does not respond as a valid Sentinel covenant.")
+
+        self.covenant_addresses.append(address_hex)
+        amount = int(gl.message.value)
+        self.collected_fees = u256(int(self.collected_fees) + amount)
+        meta = {
+            "address": address_hex,
+            "service_name": info.get("service_name", ""),
+            "endpoint_url": info.get("endpoint_url", ""),
+            "spec": info.get("spec", ""),
+            "slash_amount": info.get("slash_amount", "0"),
+            "min_bond": info.get("min_bond", "0"),
+            "seller": info.get("address_seller", ""),
+            "created_at": str(_consensus_now()),
+            "creation_stake": str(amount),
+        }
+        self.covenant_meta[norm] = json.dumps(meta)
         return address_hex
 
     @gl.public.write

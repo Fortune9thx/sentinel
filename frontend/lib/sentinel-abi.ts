@@ -1,5 +1,6 @@
 export const SENTINEL_FACTORY_METHODS = {
   createCovenant: "create_covenant",
+  registerCovenant: "register_covenant",
   withdrawFees: "withdraw_fees",
   getOwner: "get_owner",
   getCreationStake: "get_creation_stake",

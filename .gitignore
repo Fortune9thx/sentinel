@@ -19,6 +19,10 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+*.egg-info/
+
+# TypeScript
+*.tsbuildinfo
 
 # GenLayer / gltest caches
 .gltest-cache/

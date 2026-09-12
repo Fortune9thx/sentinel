@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { TransactionPanel } from "@/components/TransactionPanel";
 import { useGenLayerClient, getReadOnlyClient, readContractRetry } from "@/lib/genlayer-client";
 import { useTransactionLifecycle } from "@/lib/useTransactionLifecycle";
-import { createCovenant, fetchCovenants, fetchCreationStake, waitForNewCovenant } from "@/lib/sentinel-calls";
+import { createCovenantDirect, fetchCreationStake } from "@/lib/sentinel-calls";
 import { getSentinelFactoryAddress, isSentinelFactoryDeployed } from "@/lib/contracts";
 import { cn, formatGen, parseGenToWei } from "@/lib/utils";
 
@@ -32,7 +32,6 @@ export default function CreateCovenantPage() {
   const [creationStakeError, setCreationStakeError] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
   const [resolvedAddress, setResolvedAddress] = useState<string | null>(null);
-  const [resolving, setResolving] = useState(false);
 
   const factoryAddress = getSentinelFactoryAddress();
 
@@ -114,33 +113,28 @@ export default function CreateCovenantPage() {
     // wrong `value` -- see loadCreationStake()'s comment.
     if (!client || !factoryAddress || creationStake === null || slashWei === null || minBondWei === null) return;
     const stakeWei = BigInt(creationStake);
-    // Fired in parallel with run() below, NOT awaited first -- this read is
-    // only needed after the write succeeds (to resolve the new covenant's
-    // address), so blocking the wallet-signature prompt on it first would
-    // be a real UX bug: a slow/flaky read would visibly delay the wallet
-    // popup even though the two are logically independent until the write
-    // actually finishes.
-    const beforeCovenantsPromise = fetchCovenants(getReadOnlyClient(), factoryAddress).catch(() => []);
-    // A new covenant address is exactly the kind of output other things act
-    // on (the Explorer lists it, this page navigates straight to it, a
-    // beneficiary immediately registers standing against it) -- ACCEPTED
-    // can still be appealed and reversed before FINALIZED, so this is one
-    // of the writes that must wait for the stronger guarantee.
+    setResolvedAddress(null);
+    // Creation is a two-step flow (direct deploy, then register with the
+    // factory) -- see createCovenantDirect's own docstring for why. The
+    // covenant address is known as soon as the deploy step finalizes, well
+    // before the registration step (what `run()` below actually polls) has
+    // even been submitted, so it's surfaced immediately via this callback
+    // rather than waiting for the whole two-step flow to settle.
     await run(
-      () => createCovenant(client, factoryAddress, serviceName.trim(), endpointUrl.trim(), spec.trim(), slashWei!, minBondWei!, stakeWei),
+      () =>
+        createCovenantDirect(
+          client,
+          factoryAddress,
+          serviceName.trim(),
+          endpointUrl.trim(),
+          spec.trim(),
+          slashWei!,
+          minBondWei!,
+          stakeWei,
+          (address) => setResolvedAddress(address)
+        ),
       { requireFinalized: true }
     );
-    setResolving(true);
-    try {
-      const beforeCovenants = await beforeCovenantsPromise;
-      const newAddress = await waitForNewCovenant(getReadOnlyClient(), factoryAddress, beforeCovenants.length);
-      setResolvedAddress(newAddress);
-    } catch {
-      // Non-fatal: the covenant was almost certainly created (tx succeeded)
-      // -- just couldn't confirm the exact address to auto-redirect to yet.
-    } finally {
-      setResolving(false);
-    }
   }
 
   const busy = state.phase === "submitting" || state.phase === "polling";
@@ -181,17 +175,14 @@ export default function CreateCovenantPage() {
             <TransactionPanel state={state} successLabel="Covenant is live" />
             {state.phase === "success" && (
               <div className="flex flex-col items-center gap-3">
-                {resolving && <p className="text-sm text-fg-secondary">Resolving your new covenant address…</p>}
                 {resolvedAddress ? (
                   <Button onClick={() => router.push(`/covenants/${resolvedAddress}`)}>
                     View your covenant <ArrowRight className="h-4 w-4" />
                   </Button>
                 ) : (
-                  !resolving && (
-                    <Button variant="secondary" onClick={() => router.push("/covenants")}>
-                      Go to Explorer
-                    </Button>
-                  )
+                  <Button variant="secondary" onClick={() => router.push("/covenants")}>
+                    Go to Explorer
+                  </Button>
                 )}
               </div>
             )}

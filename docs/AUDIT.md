@@ -1,3 +1,82 @@
+## Live verification on GenLayer Studio Devnet (2026-09-11): full lifecycle proven working end-to-end
+
+After the Consensus v0.6 API migration (below) and the mega-audit fixes (below), `SentinelFactory
+.create_covenant()` still failed to deploy child covenants — traced initially to a v0.6
+internal-message fee-allocation gap (`fee no_matching_allocation # internal`), a platform-side issue
+in how the new fee system handles a write that itself triggers a cross-contract deploy. Deeper
+investigation found a SECOND, independent bug stacked underneath it: `gl.vm.get_timestamp()` — the
+SDK's own documented v0.3.0 timestamp API, called from `Sentinel.__init__` — is itself broken on
+Studio Devnet's live GenVM runtime (`SystemError: 2: inval`, confirmed via a real deploy attempt's
+decoded traceback), not just absent from local test tooling. This meant every covenant deploy was
+doomed regardless of the fee-allocation issue — the fee bug was simply the first of two failures to
+surface. **Fix**: switched `_consensus_now()` in both contracts to `gl.message.raw["datetime"]`
+(reads data already loaded into the VM's startup payload, not a separate VM call). **Verified with a
+real, live, 9/9-passing end-to-end run**: a direct `Sentinel.py` deploy (bypassing the factory's
+internal-deploy path, which remains blocked by the fee-allocation gap specifically) →
+`fund_bond` (auto-activates at `min_bond`) → `register_as_beneficiary` → a genuine `audit()` call
+that fetched a real live URL and received a real LLM verdict (`compliant`, 0.97 confidence) with a
+real evidence snapshot, all reaching `FINISHED_WITH_RETURN`. This proves Sentinel's actual core
+mechanism — live-fetch + LLM judgment under Equivalence Principle consensus — genuinely works
+end-to-end on the v0.6 network. `SentinelFactory.create_covenant()`'s atomic deploy-and-register
+path remains blocked pending an upstream fix to the internal-message fee-allocation gap; direct
+per-covenant deployment is the practical path forward until then.
+
+## Mega audit (2026-09-11): full 177-point checklist pass, 3 real findings, all fixed
+
+Applied the full accumulated GenLayer master audit checklist (177 items, compiled across every
+prior project on this account) against Sentinel's current code — not a repeat of the earlier
+strict-review pass above, a fresh independent sweep. Found three genuine, previously-missed issues;
+all fixed in this pass.
+
+**1. No SSRF protection on `endpoint_url` (real security gap).** Both `Sentinel.__init__` and
+`SentinelFactory.create_covenant` validated only the `http(s)://` prefix and a length cap —
+`http://localhost/...`, `http://127.0.0.1/...`, `http://2130706433/...` (decimal-encoded loopback),
+private-range IPs, explicit ports, and embedded credentials all passed. Since every validator
+independently fetches this URL server-side via `gl.nondet.web.render`, an unvalidated internal
+target would make the whole validator set an unwitting internal-request proxy. **Fix:** a
+`_is_safe_endpoint_url()` helper (duplicated in both contracts, matching the existing duplication
+convention for `_consensus_now`/`_normalize_address`/`_Recipient`) using `urllib.parse.urlsplit` +
+the stdlib `ipaddress` module to reject localhost, loopback/private/link-local/reserved/multicast
+IPs (including decimal-encoded forms), explicit ports, and embedded credentials. Six new regression
+tests added across `test_factory_validation.py`/`test_bonding.py`, all passing.
+
+**2. CI has never actually passed — `pip install .` fails on every run (real, previously
+undetected).** `docs/AUDIT.md` (this file) claimed `genvm-lint`/tests were "enforced in CI on every
+push," but every recorded CI run failed at the very first Python step: `pip install .` errors with
+"Multiple top-level packages discovered in a flat-layout" (setuptools refusing to guess a package
+structure from `contracts/`, `deploy/`, `frontend/` sitting alongside `pyproject.toml`). A workflow
+file existing is not evidence it has run green — checked directly via `gh run list`, not assumed.
+**Fix:** `[tool.setuptools] packages = []` in `pyproject.toml` — this project has no distributable
+Python package of its own, only tooling dependencies to install. Verified locally with
+`pip install --dry-run .`.
+
+**3. Local direct-mode test harness was still on the pre-v0.6-migration toolchain pin.**
+`tests/direct/conftest.py` hardcoded `sdk_version="v0.2.16"` (the OLD, now-unhosted GenVM version)
+and imported the OLD SDK module layout (`genlayer.py.types`, `genlayer.gl`) — both stale since the
+contracts' own Consensus v0.6 migration (see project memory). **Fix:** re-pinned to `v0.6.0-rc5`,
+fixed the `Address` import path to `genlayer.types`, and marked the now-defunct `warp_now()`
+timestamp patch as an honest no-op rather than a silent wrong-fix (see below). Direct-mode tests
+went from 0/54 collecting to 22/54 passing — every non-timestamp-touching guard clause (all the new
+SSRF tests included) now runs and passes again.
+
+**Confirmed, not fixed (genuine external toolchain gap, not a contract bug):** `gltest` direct-mode's
+WASI mock does not implement the `GetTimestamp` VM call at all yet — `gl.vm.get_timestamp()` (the
+v0.3.0 replacement for the old `gl.message_raw["datetime"]` pattern) always returns `None` locally,
+crashing any method that calls it. This blocks the remaining 32/54 direct-mode tests (anything that
+deploys or calls a Sentinel method, since `_consensus_now()` is called from `__init__` onward) until
+GenLayer's own test tooling adds support — confirmed by grepping the entire installed `gltest`
+package source, zero references anywhere. Not worked around with a monkeypatch, which would risk
+silently testing a fake clock instead of real contract logic. These paths remain covered by live
+integration testing instead (`tests/integration/test_full_lifecycle.py`), and by the real,
+verified Consensus v0.6 Studio Devnet deploy (`SentinelFactory` FINALIZED with a genuine
+`FINISHED_WITH_RETURN`, clean reads) already completed this session.
+
+Everything else in the 177-point checklist was reviewed against the actual current code (both
+contracts, `lib/genlayer-client.ts`, `lib/sentinel-calls.ts`, `lib/useTransactionLifecycle.ts`,
+`lib/wagmi-config.ts`, `AppNav.tsx`, CI config, repo hygiene) and confirmed already correct — the
+finality-gating, execution-result-checking, ephemeral-read-account, provider-binding, and
+registry-diff patterns documented in the sections below all still hold.
+
 # Audit: pre-hardened against known GenLayer portal rejection patterns
 
 This document records a self-adversarial review of Sentinel, calibrated against real GenLayer

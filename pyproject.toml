@@ -13,3 +13,12 @@ dependencies = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests/direct"]
+
+[tool.setuptools]
+# This project has no distributable Python package of its own -- pyproject.toml
+# exists only to declare the tooling dependencies CI/local dev installs.
+# Without this, setuptools' flat-layout auto-discovery sees contracts/, deploy/,
+# frontend/ as candidate top-level packages and refuses to build at all
+# ("Multiple top-level packages discovered in a flat-layout"), which is why
+# `pip install .` was silently failing on every CI run.
+packages = []
