@@ -11,7 +11,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { TransactionPanel } from "@/components/TransactionPanel";
 import { useGenLayerClient, getReadOnlyClient, readContractRetry } from "@/lib/genlayer-client";
 import { useTransactionLifecycle } from "@/lib/useTransactionLifecycle";
-import { createCovenantDirect, fetchCreationStake } from "@/lib/sentinel-calls";
+import { createCovenantDirect, registerCovenant, fetchCreationStake } from "@/lib/sentinel-calls";
 import { getSentinelFactoryAddress, isSentinelFactoryDeployed } from "@/lib/contracts";
 import { cn, formatGen, parseGenToWei } from "@/lib/utils";
 
@@ -137,6 +137,18 @@ export default function CreateCovenantPage() {
     );
   }
 
+  // If the deploy step succeeded but registration didn't (a rejected second
+  // wallet signature, a network hiccup, anything after onCovenantAddress
+  // already fired), a real, already-deployed, gas-paid covenant exists at
+  // resolvedAddress even though state.phase is "error" -- retry ONLY the
+  // registration step against that known address rather than deploying a
+  // brand new, duplicate covenant from scratch.
+  async function handleRetryRegistration() {
+    if (!client || !factoryAddress || creationStake === null || !resolvedAddress) return;
+    const stakeWei = BigInt(creationStake);
+    await run(() => registerCovenant(client, factoryAddress, resolvedAddress as `0x${string}`, stakeWei));
+  }
+
   const busy = state.phase === "submitting" || state.phase === "polling";
 
   return (
@@ -187,15 +199,28 @@ export default function CreateCovenantPage() {
               </div>
             )}
             {state.phase === "error" && (
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  reset();
-                  setResolvedAddress(null);
-                }}
-              >
-                Try again
-              </Button>
+              <div className="flex flex-col items-center gap-3">
+                {resolvedAddress && (
+                  <p className="max-w-sm text-center text-sm text-fg-secondary">
+                    Your covenant already deployed successfully at{" "}
+                    <span className="font-mono text-xs text-fg">{resolvedAddress}</span> — only
+                    registering it with the factory didn&apos;t finish. No need to deploy again,
+                    just finish registering the one that already exists.
+                  </p>
+                )}
+                <div className="flex gap-3">
+                  {resolvedAddress && <Button onClick={handleRetryRegistration}>Finish registering</Button>}
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      reset();
+                      setResolvedAddress(null);
+                    }}
+                  >
+                    {resolvedAddress ? "Start over instead" : "Try again"}
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         ) : (

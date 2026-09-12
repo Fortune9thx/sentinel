@@ -118,13 +118,40 @@ export async function createCovenantDirect(
       }).`
     );
   }
+  // genlayer-js's GenLayerTransaction has put the deployed address at
+  // slightly different paths across versions/receipt shapes in prior
+  // verification on this stack -- check every known location rather than
+  // assume just one, so a real successful deploy never gets misreported as
+  // "no address found" over a receipt-shape difference.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const covenantAddress = (deployTx.txDataDecoded as any)?.contractAddress as `0x${string}` | undefined;
+  const deployTxAny = deployTx as any;
+  const covenantAddress = (deployTxAny.txDataDecoded?.contractAddress ??
+    deployTxAny.contractAddress ??
+    deployTxAny.to_address) as `0x${string}` | undefined;
   if (!covenantAddress) {
     throw new Error("Deployment succeeded but no contract address was found in the receipt.");
   }
   onCovenantAddress?.(covenantAddress);
 
+  return registerCovenant(client, factoryAddress, covenantAddress, creationStakeValue);
+}
+
+/**
+ * The registration half of createCovenantDirect, callable standalone. Needed
+ * because deploy and register are two separate signed transactions -- if the
+ * deploy succeeds but the user rejects (or a network hiccup drops) the
+ * second signature, a real, already-deployed, gas-paid covenant would
+ * otherwise be silently orphaned (undiscoverable in the registry, with the
+ * UI's only recourse being to deploy a brand new duplicate). Exposing this
+ * separately lets the UI retry just the registration step against the
+ * already-known address instead.
+ */
+export async function registerCovenant(
+  client: GenLayerClient<GenLayerChain>,
+  factoryAddress: `0x${string}`,
+  covenantAddress: `0x${string}`,
+  creationStakeValue: bigint
+): Promise<`0x${string}`> {
   return writeContractWithFees(client, {
     address: factoryAddress,
     functionName: SENTINEL_FACTORY_METHODS.registerCovenant,

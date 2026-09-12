@@ -5,9 +5,14 @@ import { CheckCircle2, XCircle, Loader2 } from "lucide-react";
 import { ConsensusVisualizer } from "./ConsensusVisualizer";
 import { Button } from "./ui/button";
 import type { TransactionLifecycleState } from "@/lib/useTransactionLifecycle";
-import { testnetBradbury } from "genlayer-js/chains";
+import { SENTINEL_ACTIVE_NETWORK } from "@/lib/contracts";
 
-const EXPLORER_BASE = testnetBradbury.blockExplorers?.default?.url ?? "https://explorer-bradbury.genlayer.com/";
+// genlayer-js's studioDevnet chain has no blockExplorers entry at all (it's a
+// preview/RC network with no public explorer as of this writing) -- linking
+// tx hashes to Bradbury's explorer here would be actively misleading, since a
+// studioDev tx hash doesn't exist on Bradbury's chain. Only Bradbury gets a
+// real link; every other active network shows the hash as plain text.
+const EXPLORER_BASE = SENTINEL_ACTIVE_NETWORK === "bradbury" ? "https://explorer-bradbury.genlayer.com/" : null;
 
 export function TransactionPanel({
   state,
@@ -51,7 +56,7 @@ export function TransactionPanel({
         </div>
       )}
 
-      {state.hash && (
+      {state.hash && EXPLORER_BASE && (
         <a
           href={`${EXPLORER_BASE}tx/${state.hash}`}
           target="_blank"
@@ -60,6 +65,11 @@ export function TransactionPanel({
         >
           {state.hash.slice(0, 10)}…{state.hash.slice(-8)}
         </a>
+      )}
+      {state.hash && !EXPLORER_BASE && (
+        <p className="font-mono text-xs text-fg-muted">
+          {state.hash.slice(0, 10)}…{state.hash.slice(-8)}
+        </p>
       )}
 
       {(state.phase === "success" || state.phase === "error") && onReset && (

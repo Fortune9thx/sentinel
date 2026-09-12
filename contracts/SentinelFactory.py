@@ -178,14 +178,29 @@ class SentinelFactory(gl.contract.Contract):
         internal gl.contract.deploy() call create_covenant() uses --
         Consensus v0.6's internal-message fee-allocation system currently
         rejects that path (`fee no_matching_allocation # internal`,
-        confirmed live on Studio Devnet, an unresolved upstream platform
-        gap, not a bug in this contract). The covenant must already be
-        deployed directly (a real top-level deploy transaction, confirmed
-        working) using this factory's own embedded sentinel_code. Rather
-        than trusting caller-supplied metadata blindly, this reads the
-        covenant's own live state via a real cross-contract view call to
-        confirm it responds with the expected Sentinel shape before
-        registering it."""
+        confirmed live on Studio Devnet across multiple independent fee
+        configurations tried, an unresolved upstream platform gap, not a bug
+        in this contract).
+
+        DISCLOSED LIMITATION: GenVM currently exposes no in-contract
+        primitive to verify that `address` is genuinely running this
+        factory's own embedded `sentinel_code` (no code-hash/bytecode
+        comparison call exists in the SDK as of this writing). This method
+        independently reads the target's own live state via a real
+        cross-contract view call and requires it to look and be positioned
+        exactly like a freshly-deployed, never-yet-funded Sentinel instance
+        (status == pending_bond, zero bond, zero audits, zero breaches) and
+        requires the caller to BE that covenant's own reported seller -- this
+        closes the case where a random third party registers an unrelated or
+        stale contract, and forces any forgery to be a *freshly-deployed*
+        contract shaped exactly like a brand-new covenant, not an
+        already-fabricated fake history. It does NOT, and structurally
+        cannot with currently-available primitives, cryptographically
+        guarantee the registered contract's audit()/fund_bond() logic is the
+        real Sentinel implementation rather than a look-alike that later
+        self-reports fabricated audit outcomes. This is the accepted,
+        explicitly-disclosed tradeoff of the create_covenant-bypass
+        workaround above; see docs/AUDIT.md."""
         if gl.message.value < self.creation_stake:
             raise gl.vm.UserError(
                 f"Creation stake too low: sent {gl.message.value}, requires {self.creation_stake}"
@@ -200,6 +215,12 @@ class SentinelFactory(gl.contract.Contract):
         info = proxy.view().get_covenant_info()
         if not isinstance(info, dict) or "status" not in info or "address_seller" not in info:
             raise gl.vm.UserError("Address does not respond as a valid Sentinel covenant.")
+        if _normalize_address(info.get("address_seller", "")) != _normalize_address(gl.message.sender_address.as_hex):
+            raise gl.vm.UserError("Only the covenant's own seller may register it.")
+        if info.get("status") != "pending_bond":
+            raise gl.vm.UserError("Only a freshly-deployed, unfunded covenant can be registered.")
+        if info.get("bond", "0") != "0" or info.get("audit_count", "0") != "0" or info.get("total_breaches", "0") != "0":
+            raise gl.vm.UserError("Covenant does not look freshly deployed.")
 
         self.covenant_addresses.append(address_hex)
         amount = int(gl.message.value)

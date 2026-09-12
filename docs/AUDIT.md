@@ -260,6 +260,61 @@ both contracts, 7/7 frontend unit tests, clean production build. A real Bradbury
 file (`tests/integration/test_full_lifecycle.py`) exercises the full `create_covenant → fund_bond →
 audit` path against a real live endpoint, not just the WASI mock.
 
+## Final pre-submission hardening pass (2026-09-12)
+
+A critical, adversarial re-review of the morning's rushed workaround (the `create_covenant`
+fee-allocation bypass) surfaced one real security gap and two real code bugs, all now fixed and
+live-verified.
+
+**Confirmed definitively unfixable from contract code: the internal-deploy fee-allocation gap.**
+Three more independent attempts this session, three more platform-side failure modes: `gl.contract
+.deploy(..., use_balance=True, fee_params=InternalMessageParams(...))` from inside a contract hits
+`SystemError: 6: forbidden` (`use_balance` needs an unavailable `can_use_balance_for_message_fees`
+permission); `fee_params` alone without `use_balance` hits a generic `exit_code 1`; manually
+constructing `messageAllocations` client-side hits `InvalidFeeParams`. This is an upstream Consensus
+v0.6 platform gap, not something closeable with currently-documented primitives — the two-step
+deploy-then-register flow remains the correct workaround.
+
+**Critical finding: `register_covenant()`'s original spoofing gap.** The first version of this
+method (added this morning under deadline pressure) verified a target contract only by checking that
+its `get_covenant_info()` view returned a dict containing "status" and "address_seller" keys —
+trivially satisfiable by ANY contract implementing a same-shaped view method, including one that
+fabricates a fully "compliant" audit history. GenVM exposes no in-contract primitive to verify
+another contract's actual bytecode/source hash (confirmed by exhaustively grepping the cached SDK
+source for `code_hash`/`get_code`/`source_hash`/`verify_code` — zero hits), so this cannot be fully
+closed with currently-available primitives. **Mitigated** (not fully closed) by requiring: the
+caller must equal the target's own reported `address_seller` (closes third-party registration of an
+unrelated/stale contract); `status` must be exactly `"pending_bond"`; `bond`, `audit_count`, and
+`total_breaches` must all be `"0"` (freshness checks). This forces any forgery to be a
+freshly-deployed, correctly-shaped contract registered by its own deployer in the same transaction
+window as a real covenant — not an already-fabricated fake history — but does not, and structurally
+cannot, cryptographically prove the registered contract's `audit()`/`fund_bond()` logic is the real
+`Sentinel` implementation. **Live-verified against the redeployed hardened factory**
+(`0x3F8d45B7d8FF7aBa373cAf7Cd13D7DeB25fc8564`, tx `0xb53844201cbbe79a97508a71435fb5ee06082c67c747e5ff46d094792c9f5652`):
+a real fresh covenant deploy + register succeeded, a second registration attempt on the same address
+was correctly rejected ("already registered"), a registration attempt from a non-seller account was
+correctly rejected, and the full downstream lifecycle (fund_bond → register_as_beneficiary → a real
+LLM audit) still reached `FINISHED_WITH_RETURN` — 7/7 live checks passed.
+
+**Fixed: `createCovenantDirect`'s address-extraction regression.** The frontend's deploy-address
+extraction only checked `deployTx.txDataDecoded?.contractAddress`, unlike the proven-working backend
+test scripts which checked three possible receipt shapes. A real deploy could have been misreported
+as "no contract address found" purely from a receipt-shape difference. Fixed with the same 3-way
+fallback (`txDataDecoded?.contractAddress ?? contractAddress ?? to_address`).
+
+**Fixed: orphaned-deploy UX gap.** If the deploy half of the two-step flow succeeds but the register
+half fails (wallet rejection, network hiccup), a real gas-paid contract was previously left with no
+recovery path except starting over and deploying a wasteful duplicate. `registerCovenant()` is now
+exposed standalone, and `create/page.tsx`'s error state offers a "Finish registering" button that
+retries just the registration step against the already-known address.
+
+**Fixed: wrong-network explorer links.** `TransactionPanel.tsx` hardcoded every tx-hash link to
+Bradbury's block explorer regardless of active network — actively misleading on Studio Devnet, since
+a studioDev tx hash doesn't exist on Bradbury's explorer (Studio Devnet has no public explorer at
+all as of this writing, confirmed via the SDK's `blockExplorers` field being `undefined`). Fixed to
+only render the link on Bradbury; every other active network now shows the hash as plain,
+non-clickable text.
+
 ## Acknowledged, not fully closeable
 
 - Judging whether a live response satisfies a natural-language spec is fundamentally a qualitative
