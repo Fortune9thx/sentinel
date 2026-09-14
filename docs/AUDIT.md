@@ -1,3 +1,87 @@
+## Steward-requested hardening (2026-09-14)
+
+A GenLayer steward reviewed the submission and requested six specific changes: make beneficiary
+eligibility verifiable, keep breach processing bounded, constrain audits to SLA claims the contract's
+own evidence actually supports, prevent unverified look-alike contracts from appearing as trusted
+covenants, enforce a real JSON boolean for the compliance result, and add focused tests for these
+trust boundaries plus the actual deploy-then-register workflow. Each is addressed below, with what
+was and wasn't fully closeable stated plainly.
+
+**1 & 2 — beneficiary eligibility and bounded breach processing (one fix covers both).**
+`register_as_beneficiary()` was completely free and unbounded: any address could register with zero
+proof of any real relationship to the service, and nothing capped how many could. Beyond the fairness
+problem, this was a real liveness bug: `_record_violation()` iterates every registered beneficiary on
+every violating/escalated audit to compute breach eligibility, so an unbounded flood of free Sybil
+registrations could make that loop -- and the breach-triggering audit call it runs inside -- arbitrarily
+expensive, potentially DoSing the one guarantee this contract exists to make (a confirmed breach
+actually slashes and pays out). **Fix**: added `MAX_BENEFICIARIES = 500` in `Sentinel.py`, enforced in
+`register_as_beneficiary()`. This bounds the loop's cost regardless of registration attempts.
+**Disclosed, not fully closed**: this makes eligibility bounded and gives it real (if informal)
+meaning -- "registered before the cap filled" -- but it is still not a cryptographic proof of real
+usage; GenVM has no on-chain way to verify a registrant is a genuine customer of the audited service.
+Live-verified: `tests/direct/test_beneficiary_cap.py` registers 500 real addresses then proves the
+501st is rejected.
+
+**3 — constraining audits to what the evidence actually supports.** Two real gaps here. First, the
+audit prompt asked the model to judge the *entire* spec against a single rendered page-body fetch
+(`gl.nondet.web.render(..., mode="text")`), which captures neither the HTTP status code nor response
+headers nor latency -- so a common class of SLA claim ("must return HTTP 200") was structurally
+unverifiable from the evidence actually captured, yet nothing stopped the model from guessing at
+compliance anyway. **Fix**: the prompt now explicitly tells the model what this evidence channel can
+and cannot prove, instructs it to judge only the observable portion of the spec when a claim isn't
+checkable from the body text, and to lower confidence rather than assume either way. Second, the
+injection-defense framing already fenced the fetched response as `DATA, NOT INSTRUCTIONS`; this was
+kept and reinforced with a stronger "use ONLY what is directly observable" instruction in the judgment
+paragraph itself.
+
+**4 — preventing unverified look-alike contracts.** `register_covenant()`'s existing hardening (caller
+must equal the target's own reported seller; target must report `pending_bond` status and zero
+bond/audit_count/total_breaches) was extended: the target's reported `service_name`/`endpoint_url`/
+`spec` are now independently validated against the exact same length bounds and SSRF-safety checks
+`Sentinel.__init__` enforces on every genuine covenant. A real Sentinel instance could never actually
+hold an oversized or unsafe value there -- its own constructor rejects them -- so a target reporting
+one is proof it isn't running genuine Sentinel logic, and is now rejected outright rather than having
+that unsafe data copied into the registry's own public metadata. **Disclosed, not fully closed**: GenVM
+still exposes no in-contract primitive to compare another contract's actual bytecode/source hash (
+confirmed again this session by re-grepping the cached SDK source), so a sufficiently deliberate forgery
+that hard-codes plausible-looking, well-formed responses to every check can still pass. What's
+closed is the accidental/lazy case (stale, third-party, or malformed-data registrations); what remains
+open is a purpose-built forgery, which is the honest limit of what a contract without a code-hash
+primitive can verify about another contract. Live-verified end-to-end (see below).
+
+**5 — enforcing a real JSON boolean for the compliance result.** Found a genuine, concrete bug:
+`compliant = bool(parsed.get("compliant", False))` truth-tests whatever JSON type the model produced.
+`bool("false")` is `True` in Python -- any non-empty string is truthy -- so a model that quoted its
+boolean (`"compliant": "false"`, a real, observed LLM habit despite the prompt asking for an unquoted
+JSON literal) would have its literal false verdict silently flipped to a compliant outcome. **Fix**:
+added `_parse_bool_strict()`, which accepts a real JSON bool as-is, accepts the quoted `"true"`/
+`"false"` string form case-insensitively, and fails closed to `False` for anything else (a number,
+null, missing field, garbage) -- consistent with every other ambiguous-input path already in this
+contract. Applied at both the point the model's response is parsed and the point the audit record is
+constructed. Regression-tested in `tests/direct/test_audit.py` (`test_audit_treats_quoted_string_false_
+as_not_compliant`, `..._true_as_compliant`, `..._garbage_compliant_field_as_not_compliant`).
+
+**6 — focused tests for these trust boundaries and the deploy-then-register workflow.** Added:
+`tests/direct/test_beneficiary_cap.py` (the 500-cap enforcement, direct-mode, no live network needed);
+three new regression tests in `tests/direct/test_audit.py` for the strict-boolean fix; and four new
+integration tests in `tests/integration/test_full_lifecycle.py` --
+`test_register_covenant_accepts_a_fresh_directly_deployed_covenant`,
+`test_register_covenant_rejects_non_seller_caller`,
+`test_register_covenant_rejects_double_registration`, and
+`test_register_covenant_rejects_a_non_fresh_covenant` -- which exercise the *actual* production path
+(direct Sentinel deploy, then `register_covenant()`) rather than the internally-broken
+`create_covenant()` path the rest of that file's older tests use. Existing tests already exercising
+`create_covenant()` remain in place but are marked in a new module comment as not reproducible on
+Studio Devnet today, for the same disclosed fee-allocation reason as everywhere else in this document.
+
+**Live re-verification.** Redeployed `SentinelFactory` with all of the above to Studio Devnet at
+`0xD159065388a596b83B56dE34C83806666d59B8E7` (tx
+`0x3b844f45bef9784ac7d9aa1a77f0a3bd0373279c4acedcb298014be2b2823a82`, FINALIZED) and re-ran the full
+deploy -> register -> fund -> register-beneficiary -> audit path live, this time with realistic small
+bond values (min_bond 3 GEN, not the earlier placeholder 3000 GEN a real user could never fund), and
+confirmed the audit's returned `compliant` field is a genuine JSON boolean end-to-end, not a
+truthy-coerced string.
+
 ## Live verification on GenLayer Studio Devnet (2026-09-11): full lifecycle proven working end-to-end
 
 After the Consensus v0.6 API migration (below) and the mega-audit fixes (below), `SentinelFactory

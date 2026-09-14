@@ -25,6 +25,19 @@ from pathlib import Path
 import pytest
 from gltest import get_contract_factory
 
+# ---------------------------------------------------------------------------
+# The deploy-then-register workflow: on Consensus v0.6 (Studio Devnet),
+# create_covenant()'s own internal gl.contract.deploy() call is blocked by a
+# confirmed, unresolved platform-side fee-allocation gap (see
+# SentinelFactory.register_covenant's own docstring and docs/AUDIT.md) --
+# every write above this point that calls create_covenant() is therefore
+# NOT reproducible on studio-dev today, only on whatever network still has
+# working internal-message fees. The tests in the block below exercise the
+# actual production path instead: deploy Sentinel directly (bypassing the
+# factory's internal deploy), then register it via register_covenant(). This
+# is the only path proven live on Studio Devnet this session.
+# ---------------------------------------------------------------------------
+
 CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
 SENTINEL_PATH = CONTRACTS_DIR / "Sentinel.py"
 SENTINEL_FACTORY_PATH = CONTRACTS_DIR / "SentinelFactory.py"
@@ -120,3 +133,60 @@ def test_fund_bond_and_audit_against_a_real_live_endpoint(factory, accounts):
     # judgment call this test doesn't assert on.
     assert record["outcome"] in ("compliant", "violation")
     assert record["evidence_snapshot"] != ""
+
+
+def _deploy_sentinel_direct(seller, service_name="Direct-deploy probe", slash_amount=1000, min_bond=3000):
+    return get_contract_factory(contract_file_path=str(SENTINEL_PATH)).deploy(
+        args=[service_name, ENDPOINT, SPEC, slash_amount, min_bond], account=seller
+    )
+
+
+def test_register_covenant_accepts_a_fresh_directly_deployed_covenant(factory, accounts):
+    """The production workaround for the internal-deploy fee-allocation gap:
+    deploy Sentinel directly (a plain top-level deploy, no factory
+    involvement), then register that address with the factory. Proves the
+    hardened seller-match + freshness checks accept the legitimate case."""
+    seller = accounts[0]
+    sentinel = _deploy_sentinel_direct(seller)
+
+    address_hex = factory.connect(seller).register_covenant(sentinel.address, value=1)
+    assert address_hex.lower() == sentinel.address.lower()
+
+    meta = factory.get_covenant_meta(address_hex)
+    assert meta["seller"].lower() == seller.address.lower()
+
+    info = sentinel.get_covenant_info()
+    assert info["status"] == "pending_bond"
+
+
+def test_register_covenant_rejects_non_seller_caller(factory, accounts):
+    """Only the covenant's own reported seller may register it -- closes
+    the case of a random third party registering someone else's already
+    -deployed covenant out from under them."""
+    seller, stranger = accounts[0], accounts[1]
+    sentinel = _deploy_sentinel_direct(seller)
+
+    with pytest.raises(Exception, match="Only the covenant's own seller"):
+        factory.connect(stranger).register_covenant(sentinel.address, value=1)
+
+
+def test_register_covenant_rejects_double_registration(factory, accounts):
+    seller = accounts[0]
+    sentinel = _deploy_sentinel_direct(seller)
+
+    factory.connect(seller).register_covenant(sentinel.address, value=1)
+    with pytest.raises(Exception, match="already registered"):
+        factory.connect(seller).register_covenant(sentinel.address, value=1)
+
+
+def test_register_covenant_rejects_a_non_fresh_covenant(factory, accounts):
+    """A covenant that has already been funded/activated can no longer be
+    registered -- register_covenant is only for wiring a brand-new,
+    never-yet-funded deploy into the registry, not for re-pointing an
+    already-live covenant."""
+    seller = accounts[0]
+    sentinel = _deploy_sentinel_direct(seller)
+    sentinel.connect(seller).fund_bond(value=3000)
+
+    with pytest.raises(Exception, match="freshly-deployed"):
+        factory.connect(seller).register_covenant(sentinel.address, value=1)

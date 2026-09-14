@@ -194,13 +194,21 @@ class SentinelFactory(gl.contract.Contract):
         closes the case where a random third party registers an unrelated or
         stale contract, and forces any forgery to be a *freshly-deployed*
         contract shaped exactly like a brand-new covenant, not an
-        already-fabricated fake history. It does NOT, and structurally
-        cannot with currently-available primitives, cryptographically
-        guarantee the registered contract's audit()/fund_bond() logic is the
-        real Sentinel implementation rather than a look-alike that later
-        self-reports fabricated audit outcomes. This is the accepted,
-        explicitly-disclosed tradeoff of the create_covenant-bypass
-        workaround above; see docs/AUDIT.md."""
+        already-fabricated fake history. On top of that, the target's
+        reported service_name/endpoint_url/spec are independently validated
+        against the exact same bounds and SSRF-safety checks
+        Sentinel.__init__ enforces on every genuine covenant -- a real
+        Sentinel could never actually hold an oversized or unsafe value
+        there, so a target reporting one is rejected outright rather than
+        having that unsafe data copied into this registry's own public
+        metadata. It does NOT, and structurally cannot with
+        currently-available primitives, cryptographically guarantee the
+        registered contract's audit()/fund_bond() logic is the real
+        Sentinel implementation rather than a look-alike that later
+        self-reports fabricated audit outcomes -- GenVM has no in-contract
+        way to compare another contract's actual bytecode/source hash. This
+        is the accepted, explicitly-disclosed residual tradeoff of the
+        create_covenant-bypass workaround above; see docs/AUDIT.md."""
         if gl.message.value < self.creation_stake:
             raise gl.vm.UserError(
                 f"Creation stake too low: sent {gl.message.value}, requires {self.creation_stake}"
@@ -221,6 +229,33 @@ class SentinelFactory(gl.contract.Contract):
             raise gl.vm.UserError("Only a freshly-deployed, unfunded covenant can be registered.")
         if info.get("bond", "0") != "0" or info.get("audit_count", "0") != "0" or info.get("total_breaches", "0") != "0":
             raise gl.vm.UserError("Covenant does not look freshly deployed.")
+
+        # A target that passes every check above is still an ARBITRARY
+        # contract controlled entirely by whoever deployed it -- nothing
+        # stops it from reporting a service_name/endpoint_url/spec that
+        # violates the exact same bounds Sentinel.__init__ and
+        # create_covenant() enforce on every genuine covenant (oversized
+        # strings, an unsafe/SSRF-targeting endpoint_url, control
+        # characters). A real Sentinel instance could never actually hold
+        # such values -- its own constructor rejects them -- so if a
+        # reported value fails these checks, the target is definitely not
+        # running genuine Sentinel logic and must be rejected outright,
+        # rather than copying unsafe/malformed data into this registry's own
+        # public metadata for the frontend to render or link out to.
+        reported_name = info.get("service_name", "")
+        reported_url = info.get("endpoint_url", "")
+        reported_spec = info.get("spec", "")
+        if not reported_name or len(reported_name) > MAX_NAME_LEN:
+            raise gl.vm.UserError("Reported service_name is invalid for a genuine Sentinel covenant.")
+        if (
+            not reported_url
+            or len(reported_url) > MAX_URL_LEN
+            or not (reported_url.startswith("http://") or reported_url.startswith("https://"))
+            or not _is_safe_endpoint_url(reported_url)
+        ):
+            raise gl.vm.UserError("Reported endpoint_url is invalid for a genuine Sentinel covenant.")
+        if not reported_spec or len(reported_spec) > MAX_SPEC_LEN:
+            raise gl.vm.UserError("Reported spec is invalid for a genuine Sentinel covenant.")
 
         self.covenant_addresses.append(address_hex)
         amount = int(gl.message.value)

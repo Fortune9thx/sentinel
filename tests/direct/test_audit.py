@@ -304,6 +304,71 @@ def test_validator_independently_re_derives_and_agrees():
         assert vm.run_validator() is True
 
 
+def test_audit_treats_quoted_string_false_as_not_compliant():
+    """Regression test: `bool("false")` is `True` in Python -- any non-empty
+    string is truthy. An earlier version of this contract coerced the
+    model's `compliant` field with a bare `bool(...)`, so a model that
+    quoted its boolean (a real, observed LLM habit despite the prompt
+    explicitly asking for an unquoted JSON true/false) would have its
+    literal "false" verdict silently flipped to a compliant outcome. The
+    fix (_parse_bool_strict) must treat a quoted "false" string as False."""
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        sentinel = _deploy_active(vm, seller)
+        _mock_endpoint(vm, '{"status": "error"}')
+        vm.mock_llm(
+            r"independent auditor",
+            _wrapped_json({"compliant": "false", "confidence": "0.9", "reasoning": "Quoted boolean."}),
+        )
+        vm.sender = seller
+        audit_id = sentinel.audit()
+
+        record = sentinel.get_audit(audit_id)
+        assert record["compliant"] is False
+        assert record["outcome"] == "violation"
+
+
+def test_audit_treats_quoted_string_true_as_compliant():
+    """Same fix, other direction -- a quoted "true" string must still be
+    honored as compliant, not just safely defaulted to False."""
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        sentinel = _deploy_active(vm, seller)
+        _mock_endpoint(vm, '{"status": "ok"}')
+        vm.mock_llm(
+            r"independent auditor",
+            _wrapped_json({"compliant": "true", "confidence": "0.9", "reasoning": "Quoted boolean."}),
+        )
+        vm.sender = seller
+        audit_id = sentinel.audit()
+
+        record = sentinel.get_audit(audit_id)
+        assert record["compliant"] is True
+        assert record["outcome"] == "compliant"
+
+
+def test_audit_treats_garbage_compliant_field_as_not_compliant():
+    """A malformed or missing `compliant` field (not a bool, not a
+    true/false string) must fail closed to False, never silently to
+    True -- ambiguous model output must never default to compliant."""
+    vm = VMContext()
+    seller, = create_test_addresses(1)
+    with vm.activate():
+        sentinel = _deploy_active(vm, seller)
+        _mock_endpoint(vm, '{"status": "error"}')
+        vm.mock_llm(
+            r"independent auditor",
+            _wrapped_json({"compliant": "maybe", "confidence": "0.9", "reasoning": "Garbage."}),
+        )
+        vm.sender = seller
+        audit_id = sentinel.audit()
+
+        record = sentinel.get_audit(audit_id)
+        assert record["compliant"] is False
+
+
 def test_validator_disagrees_on_different_compliance_verdict():
     vm = VMContext()
     seller, = create_test_addresses(1)
