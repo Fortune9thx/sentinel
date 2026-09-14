@@ -190,3 +190,47 @@ def test_register_covenant_rejects_a_non_fresh_covenant(factory, accounts):
 
     with pytest.raises(Exception, match="freshly-deployed"):
         factory.connect(seller).register_covenant(sentinel.address, value=1)
+
+
+# ------------------------------------------------------------------
+# verify_covenant() -- the owner-only second trust tier. create_covenant()
+# entries are auto-verified (the factory deployed that exact bytecode
+# itself, so no review is needed); register_covenant() entries start
+# unverified until the owner reviews and calls verify_covenant() explicitly.
+# ------------------------------------------------------------------
+
+def test_create_covenant_entries_are_auto_verified(factory, accounts):
+    seller = accounts[0]
+    address_hex = factory.connect(seller).create_covenant(
+        "Auto-verify probe", ENDPOINT, SPEC, 1000, 3000
+    )
+    assert factory.is_covenant_verified(address_hex) is True
+    assert factory.get_covenant_meta(address_hex)["verified"] is True
+
+
+def test_register_covenant_entries_start_unverified(factory, accounts):
+    seller = accounts[0]
+    sentinel = _deploy_sentinel_direct(seller)
+    address_hex = factory.connect(seller).register_covenant(sentinel.address, value=1)
+
+    assert factory.is_covenant_verified(address_hex) is False
+    assert factory.get_covenant_meta(address_hex)["verified"] is False
+
+
+def test_owner_can_verify_a_register_covenant_entry(factory, accounts):
+    owner, seller = accounts[0], accounts[1]
+    sentinel = _deploy_sentinel_direct(seller)
+    address_hex = factory.connect(seller).register_covenant(sentinel.address, value=1)
+    assert factory.is_covenant_verified(address_hex) is False
+
+    factory.connect(owner).verify_covenant(address_hex)
+    assert factory.is_covenant_verified(address_hex) is True
+
+
+def test_verify_covenant_rejects_non_owner_caller(factory, accounts):
+    seller, stranger = accounts[0], accounts[1]
+    sentinel = _deploy_sentinel_direct(seller)
+    address_hex = factory.connect(seller).register_covenant(sentinel.address, value=1)
+
+    with pytest.raises(Exception, match="Only the factory owner"):
+        factory.connect(stranger).verify_covenant(address_hex)

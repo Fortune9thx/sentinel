@@ -96,10 +96,23 @@ class SentinelFactory(gl.contract.Contract):
 
     Every write that spawns or reads a covenant is permissionless,
     economically gated by the creation stake and the covenant's own bond
-    rather than an admin allowlist -- `owner` gates exactly one thing, and
-    only one thing: withdraw_fees(), recovering accumulated creation stakes
-    so they are never permanently stranded in this contract with no
-    recovery path.
+    rather than an admin allowlist -- registering a covenant (via either
+    create_covenant or register_covenant) never requires owner approval.
+    `owner` gates exactly two things: withdraw_fees(), recovering
+    accumulated creation stakes so they are never permanently stranded here
+    with no recovery path, and verify_covenant() -- see its own docstring
+    for why that one exists and what it does and does NOT change about
+    permissionless registration.
+
+    verified_covenants tracks a SEPARATE trust signal layered on top of the
+    registry, not a gate on being IN the registry. Every covenant deployed
+    via create_covenant() is auto-verified at registration time, because the
+    factory deployed that exact bytecode itself -- no review needed, it's
+    cryptographically certain. A covenant registered via register_covenant()
+    (the deploy-then-register workaround; see its own docstring for why
+    that path exists) starts unverified and stays that way unless the owner
+    later calls verify_covenant() on it -- see docs/AUDIT.md for the full
+    reasoning behind this two-tier design.
     """
 
     sentinel_code: str
@@ -110,6 +123,8 @@ class SentinelFactory(gl.contract.Contract):
     # address_hex(normalized) -> JSON {address, service_name, endpoint_url,
     #                                   spec, seller, created_at, creation_stake}
     covenant_meta: TreeMap[str, str]
+    # normalized_address -> "1" once verified (see verify_covenant's docstring)
+    verified_covenants: TreeMap[str, str]
 
     def __init__(self, sentinel_code: str, creation_stake: u256):
         if not sentinel_code:
@@ -169,7 +184,15 @@ class SentinelFactory(gl.contract.Contract):
             "created_at": str(_consensus_now()),
             "creation_stake": str(amount),
         }
-        self.covenant_meta[_normalize_address(address_hex)] = json.dumps(meta)
+        norm = _normalize_address(address_hex)
+        self.covenant_meta[norm] = json.dumps(meta)
+        # This is the ONLY code path in this contract that can be certain,
+        # not merely convinced, that the deployed bytecode is exactly
+        # sentinel_code -- gl.contract.deploy() above deployed it directly
+        # from this factory's own storage. No review, no owner action, no
+        # judgment call: automatic verification is correct here precisely
+        # because nothing needs to be trusted.
+        self.verified_covenants[norm] = "1"
         return address_hex
 
     @gl.public.write.payable
@@ -208,7 +231,17 @@ class SentinelFactory(gl.contract.Contract):
         self-reports fabricated audit outcomes -- GenVM has no in-contract
         way to compare another contract's actual bytecode/source hash. This
         is the accepted, explicitly-disclosed residual tradeoff of the
-        create_covenant-bypass workaround above; see docs/AUDIT.md."""
+        create_covenant-bypass workaround above; see docs/AUDIT.md.
+
+        Because that residual gap can't be closed by verification logic
+        alone, a covenant registered here enters covenant_addresses
+        immediately (registration itself stays fully permissionless -- no
+        one needs the owner's approval to post a covenant) but starts
+        UNVERIFIED: it does not appear in verified_covenants until the
+        factory owner separately calls verify_covenant() on it. This is a
+        second, independent trust SIGNAL layered on top of an unchanged
+        permissionless registry, not a gate on being in it -- see
+        verify_covenant()'s own docstring."""
         if gl.message.value < self.creation_stake:
             raise gl.vm.UserError(
                 f"Creation stake too low: sent {gl.message.value}, requires {self.creation_stake}"
@@ -275,6 +308,37 @@ class SentinelFactory(gl.contract.Contract):
         return address_hex
 
     @gl.public.write
+    def verify_covenant(self, address: str) -> None:
+        """Owner-only. This is the second half of the two-tier trust model
+        register_covenant()'s own docstring describes: GenVM has no
+        in-contract way to prove a register_covenant()-admitted address is
+        genuinely running unmodified Sentinel logic, so that verification
+        can never be fully automated the way create_covenant()'s auto-verify
+        is (see create_covenant()'s own comment -- deploying the code
+        directly makes that case cryptographically certain, needing no
+        review). For a register_covenant() entry the best available
+        guarantee is a human -- the one party with a reputational stake in
+        the registry being trustworthy -- reviewing the deployed contract's
+        actual source before marking it verified (e.g. diffing it against
+        this factory's own sentinel_code off-chain). This does NOT gate
+        registration itself: an unverified covenant is still fully live,
+        fully listed, fully functional -- verify_covenant only flips a
+        second, additive trust signal the frontend can surface (e.g. a
+        "verified" badge) without ever hiding or blocking an unverified
+        entry. Idempotent and reversible only in the sense that calling it
+        again is a harmless no-op; there is deliberately no unverify() --
+        once a human has actually checked the code, that fact doesn't
+        change, only the covenant's own runtime behavior could (and that is
+        exactly what audit() -- not this method -- exists to keep
+        checking)."""
+        if gl.message.sender_address.as_hex != self.owner.as_hex:
+            raise gl.vm.UserError("Only the factory owner may verify a covenant.")
+        norm = _normalize_address(address)
+        if not self.covenant_meta.get(norm, ""):
+            raise gl.vm.UserError("Unknown covenant address.")
+        self.verified_covenants[norm] = "1"
+
+    @gl.public.write
     def withdraw_fees(self) -> None:
         if gl.message.sender_address.as_hex != self.owner.as_hex:
             raise gl.vm.UserError("Only the factory owner may withdraw collected fees.")
@@ -314,10 +378,17 @@ class SentinelFactory(gl.contract.Contract):
 
     @gl.public.view
     def get_covenant_meta(self, address: str) -> dict:
-        raw = self.covenant_meta.get(_normalize_address(address), "")
+        norm = _normalize_address(address)
+        raw = self.covenant_meta.get(norm, "")
         if not raw:
             raise gl.vm.UserError("Unknown covenant address.")
-        return json.loads(raw)
+        meta = json.loads(raw)
+        meta["verified"] = bool(self.verified_covenants.get(norm, ""))
+        return meta
+
+    @gl.public.view
+    def is_covenant_verified(self, address: str) -> bool:
+        return bool(self.verified_covenants.get(_normalize_address(address), ""))
 
     @gl.public.view
     def get_covenants_by_seller(self, seller_address: str) -> list[str]:

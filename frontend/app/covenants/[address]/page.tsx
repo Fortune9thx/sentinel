@@ -14,6 +14,7 @@ import {
   Gavel,
   History as HistoryIcon,
   LogOut,
+  BadgeCheck,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,9 +36,13 @@ import {
   claimSlashShare,
   requestExit,
   withdrawRemainingBond,
+  fetchIsCovenantVerified,
+  fetchFactoryOwner,
+  verifyCovenant,
 } from "@/lib/sentinel-calls";
 import { formatGen, shortenAddress, timeAgo } from "@/lib/utils";
 import { EXIT_COOLDOWN_SECONDS } from "@/lib/sentinel-abi";
+import { getSentinelFactoryAddress } from "@/lib/contracts";
 import type { CovenantInfo, AuditRecord, BreachRecord } from "@/lib/sentinel-abi";
 
 const STATUS_VARIANT: Record<string, "positive" | "neutral" | "warning"> = {
@@ -62,6 +67,7 @@ export default function CovenantDetailPage() {
   const claimLifecycle = useTransactionLifecycle(client);
   const beneficiaryLifecycle = useTransactionLifecycle(client);
   const exitLifecycle = useTransactionLifecycle(client);
+  const verifyLifecycle = useTransactionLifecycle(client);
 
   const [info, setInfo] = useState<CovenantInfo | null>(null);
   const [audits, setAudits] = useState<AuditRecord[] | null>(null);
@@ -69,6 +75,10 @@ export default function CovenantDetailPage() {
   const [isBeneficiary, setIsBeneficiary] = useState(false);
   const [claimable, setClaimable] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [verified, setVerified] = useState(false);
+  const [isFactoryOwner, setIsFactoryOwner] = useState(false);
+
+  const factoryAddress = getSentinelFactoryAddress();
 
   const [fundOpen, setFundOpen] = useState(false);
   const [theaterOpen, setTheaterOpen] = useState(false);
@@ -110,6 +120,33 @@ export default function CovenantDetailPage() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Failed to load this covenant."));
   }, [address, myAddress]);
+
+  // Verification status lives on the FACTORY, not this covenant contract
+  // itself -- a separate, best-effort fetch so a factory-read hiccup never
+  // blocks the covenant's own page from loading. Failure just leaves the
+  // badge/verify-button hidden rather than surfacing an error.
+  const refreshVerification = useCallback(() => {
+    if (!address || !factoryAddress) return;
+    const client = getReadOnlyClient();
+    readContractRetry(() => fetchIsCovenantVerified(client, factoryAddress, address))
+      .then(setVerified)
+      .catch(() => {});
+    if (myAddress) {
+      readContractRetry(() => fetchFactoryOwner(client, factoryAddress))
+        .then((owner) => setIsFactoryOwner(owner.toLowerCase() === myAddress.toLowerCase()))
+        .catch(() => {});
+    }
+  }, [address, factoryAddress, myAddress]);
+
+  useEffect(() => {
+    refreshVerification();
+  }, [refreshVerification]);
+
+  async function handleVerify() {
+    if (!client || !factoryAddress) return;
+    await verifyLifecycle.run(() => verifyCovenant(client, factoryAddress, address));
+    refreshVerification();
+  }
 
   useEffect(() => {
     refresh();
@@ -157,13 +194,34 @@ export default function CovenantDetailPage() {
             <Badge variant="red">
               <Coins className="h-3 w-3" /> {formatGen(info.bond)} GEN bonded
             </Badge>
+            {verified && (
+              <Badge variant="positive" title="Source code independently reviewed by the Sentinel team">
+                <BadgeCheck className="h-3 w-3" /> Verified
+              </Badge>
+            )}
           </div>
           <h1 className="display-heading mt-3 text-3xl text-fg sm:text-4xl">{info.service_name}</h1>
           <p className="mt-2 flex items-center gap-1.5 text-sm text-fg-secondary">
             <Globe className="h-3.5 w-3.5" /> <span className="truncate font-mono text-xs">{info.endpoint_url}</span>
           </p>
+          {!verified && (
+            <p className="mt-2 max-w-md text-xs text-fg-muted">
+              Not yet verified -- this covenant&apos;s deployed code hasn&apos;t been independently confirmed
+              to match Sentinel&apos;s real logic. It is still fully live and functional; verification is an
+              additional trust signal, not a requirement to operate.
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
+          {isFactoryOwner && !verified && (
+            <Button
+              variant="secondary"
+              disabled={verifyLifecycle.state.phase === "submitting" || verifyLifecycle.state.phase === "polling"}
+              onClick={handleVerify}
+            >
+              <BadgeCheck className="h-4 w-4" /> Verify covenant
+            </Button>
+          )}
           {isSeller && info.status !== "exited" && (
             <Button variant="secondary" onClick={() => setFundOpen(true)}>
               Fund bond
@@ -241,6 +299,12 @@ export default function CovenantDetailPage() {
       {beneficiaryLifecycle.state.phase !== "idle" && (
         <div className="mt-4">
           <TransactionPanel state={beneficiaryLifecycle.state} onReset={beneficiaryLifecycle.reset} successLabel="Registered" />
+        </div>
+      )}
+
+      {verifyLifecycle.state.phase !== "idle" && (
+        <div className="mt-4">
+          <TransactionPanel state={verifyLifecycle.state} onReset={verifyLifecycle.reset} successLabel="Verified" />
         </div>
       )}
 

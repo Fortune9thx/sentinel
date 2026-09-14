@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowUpRight, ShieldCheck, Globe } from "lucide-react";
+import { ArrowUpRight, ShieldCheck, BadgeCheck, Globe } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { shortenAddress, timeAgo, formatGen } from "@/lib/utils";
 import type { CovenantMeta } from "@/lib/sentinel-abi";
@@ -11,9 +11,16 @@ export function CovenantCard({ meta }: { meta: CovenantMeta }) {
       className="card-surface card-surface-hover group flex flex-col gap-4 p-6"
     >
       <div className="flex items-start justify-between gap-3">
-        <Badge variant="red">
-          <ShieldCheck className="h-3 w-3" /> {formatGen(meta.min_bond)} GEN bond
-        </Badge>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="red">
+            <ShieldCheck className="h-3 w-3" /> {formatGen(meta.min_bond)} GEN bond
+          </Badge>
+          {meta.verified && (
+            <Badge variant="positive" title="Source code independently reviewed by the Sentinel team">
+              <BadgeCheck className="h-3 w-3" /> Verified
+            </Badge>
+          )}
+        </div>
         <ArrowUpRight className="h-4 w-4 shrink-0 text-fg-muted transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-red" />
       </div>
 

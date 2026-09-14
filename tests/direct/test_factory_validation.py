@@ -202,3 +202,41 @@ def test_withdraw_fees_rejects_when_nothing_collected():
         vm.sender = owner
         with vm.expect_revert("No fees to withdraw"):
             factory.withdraw_fees()
+
+
+# ------------------------------------------------------------------
+# verify_covenant() -- the owner-only second trust tier layered on top of
+# the (still fully permissionless) registry. Only its guard clauses are
+# testable in direct mode -- confirming it actually flips verified_covenants
+# for a real register_covenant()/create_covenant() entry requires a live
+# cross-contract call, same limitation this file's module docstring already
+# notes for create_covenant()'s own deploy path; see
+# tests/integration/test_full_lifecycle.py for that coverage.
+# ------------------------------------------------------------------
+
+def test_verify_covenant_only_owner():
+    vm = VMContext()
+    owner, alice = create_test_addresses(2)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = alice
+        with vm.expect_revert("Only the factory owner"):
+            factory.verify_covenant(to_hex(alice))
+
+
+def test_verify_covenant_rejects_unknown_address():
+    vm = VMContext()
+    owner, = create_test_addresses(1)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        vm.sender = owner
+        with vm.expect_revert("Unknown covenant address"):
+            factory.verify_covenant(to_hex(owner))
+
+
+def test_is_covenant_verified_defaults_false_for_unknown_address():
+    vm = VMContext()
+    owner, = create_test_addresses(1)
+    with vm.activate():
+        factory = _deploy_factory(vm, owner, creation_stake=0)
+        assert factory.is_covenant_verified(to_hex(owner)) is False

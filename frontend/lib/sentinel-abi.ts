@@ -10,6 +10,8 @@ export const SENTINEL_FACTORY_METHODS = {
   getCovenantsPage: "get_covenants_page",
   getCovenantMeta: "get_covenant_meta",
   getCovenantsBySeller: "get_covenants_by_seller",
+  verifyCovenant: "verify_covenant",
+  isCovenantVerified: "is_covenant_verified",
 } as const;
 
 export const SENTINEL_METHODS = {
@@ -43,6 +45,7 @@ export interface CovenantMeta {
   seller: string;
   created_at: string;
   creation_stake: string;
+  verified: boolean;
 }
 
 export interface CovenantInfo {

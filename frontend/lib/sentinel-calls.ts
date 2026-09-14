@@ -36,6 +36,53 @@ export async function fetchCovenantMeta(
   return result as unknown as CovenantMeta;
 }
 
+export async function fetchFactoryOwner(
+  client: GenLayerClient<GenLayerChain>,
+  factoryAddress: `0x${string}`
+): Promise<string> {
+  const result = await client.readContract({
+    address: factoryAddress,
+    functionName: SENTINEL_FACTORY_METHODS.getOwner,
+    args: [],
+  });
+  return result as unknown as string;
+}
+
+export async function fetchIsCovenantVerified(
+  client: GenLayerClient<GenLayerChain>,
+  factoryAddress: `0x${string}`,
+  covenantAddress: string
+): Promise<boolean> {
+  const result = await client.readContract({
+    address: factoryAddress,
+    functionName: SENTINEL_FACTORY_METHODS.isCovenantVerified,
+    args: [covenantAddress],
+  });
+  return result as unknown as boolean;
+}
+
+/**
+ * Owner-only. A covenant created via create_covenant() is auto-verified (the
+ * factory deployed that exact bytecode itself); one admitted via
+ * register_covenant() -- the deploy-then-register workaround for the
+ * internal-deploy fee-allocation gap -- starts unverified until the factory
+ * owner reviews its actual deployed source and calls this. Does not affect
+ * whether the covenant is listed or usable -- see verify_covenant's own
+ * docstring in SentinelFactory.py.
+ */
+export async function verifyCovenant(
+  client: GenLayerClient<GenLayerChain>,
+  factoryAddress: `0x${string}`,
+  covenantAddress: `0x${string}`
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: factoryAddress,
+    functionName: SENTINEL_FACTORY_METHODS.verifyCovenant,
+    args: [covenantAddress],
+    value: 0n,
+  });
+}
+
 export async function fetchCreationStake(
   client: GenLayerClient<GenLayerChain>,
   factoryAddress: `0x${string}`

@@ -1,3 +1,44 @@
+## Two-tier verification for register_covenant (2026-09-14, follow-up)
+
+A critical self-review of item 4 above (preventing look-alike covenants) confirmed the residual gap is
+real and structural: `register_covenant()`'s checks close the lazy/accidental forgery case but cannot,
+even in principle, stop a deliberate one -- confirmed by tracing GenVM's own `create2_address()`
+formula (`keccak256(0x01 || deployer || salt_nonce || chain_id)`), which does NOT hash in the
+contract's bytecode the way Ethereum's real CREATE2 does. Even GenVM's own deterministic-address
+feature provides no binding between an address and the code deployed there, so no address-based check
+from within a contract can ever close this -- confirmed exhaustively, not assumed.
+
+Since the code-level gap can't be closed further, the fix is architectural: `verified_covenants`, a
+second, independent, ADDITIVE trust signal layered on top of the unchanged, still fully permissionless
+registry.
+
+- A `create_covenant()` entry is auto-verified at registration -- the factory deployed that exact
+  bytecode itself via `gl.contract.deploy()`, so this is cryptographically certain, not a judgment
+  call.
+- A `register_covenant()` entry starts unverified. The factory owner -- the one party with a
+  reputational stake in the registry being trustworthy -- can review the deployed contract's actual
+  source off-chain and call the new owner-only `verify_covenant()` to flip it.
+- Verification never gates listing, funding, auditing, or any other functionality -- an unverified
+  covenant is fully live and usable. It is purely an additive signal the frontend surfaces (a
+  "Verified" badge on `CovenantCard` and the covenant detail page, plus an explicit note when a
+  covenant is unverified) without ever hiding or blocking an unverified entry -- preserving the
+  project's stated design principle that covenant creation stays permissionless, gated by stake, not
+  an admin allowlist.
+
+New views: `is_covenant_verified(address)`, and `get_covenant_meta()` now includes a `verified` field.
+
+Live-verified end-to-end on a fresh factory redeploy
+(`0xb6DB0D4800733F96916C4ceE544A0065771617DD`): a `register_covenant()` entry starts unverified, the
+owner's `verify_covenant()` call flips it to verified, and a non-owner caller attempting the same call
+is correctly rejected -- 7/7 checks passed.
+
+**What this does and does not achieve, stated plainly**: this does not make GenVM able to compare
+bytecode -- that remains impossible with current primitives. What it does is shrink the actual blast
+radius of the disclosed gap from "any address, callable by anyone" to "requires either fooling the
+factory owner or the owner acting maliciously" -- the same trust model as essentially any curated
+registry in Web3 (e.g. token lists), stated honestly rather than implied to be fully trustless when
+the platform doesn't yet support that.
+
 ## Steward-requested hardening (2026-09-14)
 
 A GenLayer steward reviewed the submission and requested six specific changes: make beneficiary
