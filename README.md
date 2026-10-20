@@ -13,8 +13,8 @@ Not a payment gate. Not a status-page widget. Infrastructure for ongoing, capita
 independently-verified service reliability — built for a world where AI agents increasingly buy
 services from other agents with no human in the loop to catch a quiet degradation.
 
-- **Network:** GenLayer Bradbury testnet
-- **Contracts:** [`contracts/SentinelFactory.py`](contracts/SentinelFactory.py), [`contracts/Sentinel.py`](contracts/Sentinel.py)
+- **Network:** GenLayer Studio Devnet (chain 61997); Bradbury remains a legacy target
+- **Contracts:** [`contracts/SentinelFactory.py`](contracts/SentinelFactory.py), [`contracts/Sentinel.py`](contracts/Sentinel.py), [`contracts/SentinelSignalsFactory.py`](contracts/SentinelSignalsFactory.py), [`contracts/SentinelSignals.py`](contracts/SentinelSignals.py)
 
 ## The trust problem
 
@@ -47,6 +47,38 @@ exiting the instant a bad streak starts.
 
 No breach happens on one model's say-so — it happens only once independent validators, each
 fetching the live endpoint themselves, agree the seller genuinely failed its own spec.
+
+## Continuous audit signals
+
+`SentinelSignals` is the same covenant plus a pool of creator-funded watch rules. Each signal
+names a live endpoint, a natural-language rule, a poll interval, a per-hit reward, and an
+optional stipend. Anyone may poll it; the poller is paid inline, once, and only from that
+signal's pool.
+
+```mermaid
+flowchart LR
+    A[Creator funds a signal<br/>create_audit_signal] --> B{Anyone polls<br/>poll_audit_signal}
+    B -->|Rate limited or pool empty| X[Rejected]
+    B --> C[Leader fetches endpoint<br/>and hashes body]
+    C -->|Non-2xx or empty| I[Inconclusive<br/>stipend only]
+    C --> E{Validators independently<br/>fetch and judge}
+    E -->|Rule satisfied, confidence >= 0.6| H[Hit<br/>reward_per_hit]
+    E -->|Rule absent| M[Miss<br/>stipend only]
+    E -->|Low confidence| I
+    H --> P[Pool decreases exactly once]
+    M --> P
+    I --> P
+```
+
+Payouts are Path A only: `poll_audit_signal` pays the poller during the poll and writes the
+payout into the poll record. `claim_signal` deliberately always reverts, so there is no second
+claim surface to double-pay. A hit never slashes the seller bond and never advances the breach
+streak; only `audit()` does that.
+
+Signals can be paused and resumed by their creator, topped up by their creator, cancelled by
+their creator with a pull-based refund, or expired by anyone after `expires_at` with a
+pull-based refund. Polls are rate-limited to one per `interval_seconds` (60 seconds to 30 days)
+and a signal stops at 50 recorded polls.
 
 ## Why this needs GenLayer
 
@@ -96,15 +128,40 @@ Sentinel.claim_slash_share(breach_id)
 Sentinel.get_covenant_info() -> { status, bond, consecutive_failures, total_breaches, ... }
 ```
 
+**7. Create a continuous audit signal** (any address on an active covenant; the sent value
+seeds the pool):
+
+```
+SentinelSignals.create_audit_signal(label, endpoint_url, rule, interval_seconds, reward_per_hit, stipend, expires_at) -> signal_id  # payable
+```
+
+**8. Poll it** (any address; paid inline, exactly once per poll):
+
+```
+SentinelSignals.poll_audit_signal(signal_id) -> outcome
+```
+
+**9. Manage it** (creator-only except `expire_signal`):
+
+```
+SentinelSignals.top_up_signal(signal_id)      # payable
+SentinelSignals.pause_signal(signal_id)
+SentinelSignals.resume_signal(signal_id)
+SentinelSignals.cancel_signal(signal_id)      # refund via claim_refund
+SentinelSignals.expire_signal(signal_id)      # anyone after expiry
+SentinelSignals.claim_refund()                # withdraw your refund bucket
+```
+
 Full details in [`docs/AGENT_SDK.md`](docs/AGENT_SDK.md).
 
 ## Repository structure
 
 ```
 sentinel/
-├── contracts/          SentinelFactory.py, Sentinel.py
+├── contracts/          SentinelFactory.py, Sentinel.py,
+│                       SentinelSignalsFactory.py, SentinelSignals.py
 ├── tests/
-│   ├── direct/          41 passing tests against gltest's WASI mock
+│   ├── direct/          71 passing tests against gltest's WASI mock
 │   └── integration/     Tests against a real GenLayer node (factory deploy flow)
 ├── frontend/            Next.js 15 App Router application
 ├── deploy/              Deployment scripts
@@ -121,6 +178,8 @@ sentinel/
 pip install .
 genvm-lint check contracts/Sentinel.py
 genvm-lint check contracts/SentinelFactory.py
+genvm-lint check contracts/SentinelSignals.py
+genvm-lint check contracts/SentinelSignalsFactory.py
 gltest tests/direct -v
 
 # Frontend

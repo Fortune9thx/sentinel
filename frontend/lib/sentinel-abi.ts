@@ -31,6 +31,25 @@ export const SENTINEL_METHODS = {
   isClaimed: "is_claimed",
 } as const;
 
+export const SENTINEL_SIGNAL_METHODS = {
+  createAuditSignal: "create_audit_signal",
+  topUpSignal: "top_up_signal",
+  pollAuditSignal: "poll_audit_signal",
+  claimSignal: "claim_signal",
+  pauseSignal: "pause_signal",
+  resumeSignal: "resume_signal",
+  cancelSignal: "cancel_signal",
+  expireSignal: "expire_signal",
+  claimRefund: "claim_refund",
+  getSignal: "get_signal",
+  getSignals: "get_signals",
+  getSignalsPage: "get_signals_page",
+  getSignalsByCovenant: "get_signals_by_covenant",
+  getSignalPolls: "get_signal_polls",
+  getSignalRefund: "get_signal_refund",
+  getSignalCount: "get_signal_count",
+} as const;
+
 export type CovenantStatus = "pending_bond" | "active" | "exiting" | "exited" | "";
 
 export type AuditOutcome = "compliant" | "violation" | "inconclusive" | "unreachable" | "unreachable_escalated" | "";

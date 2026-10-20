@@ -1,6 +1,7 @@
 import type { GenLayerClient, GenLayerChain, GenLayerTransaction } from "genlayer-js/types";
-import { SENTINEL_FACTORY_METHODS, SENTINEL_METHODS } from "./sentinel-abi";
+import { SENTINEL_FACTORY_METHODS, SENTINEL_METHODS, SENTINEL_SIGNAL_METHODS } from "./sentinel-abi";
 import type { CovenantMeta, CovenantInfo, AuditRecord, BreachRecord } from "./sentinel-abi";
+import type { SignalRecord, SignalPoll } from "./signal-types";
 import { writeContractWithFees, deployContractWithFees, pollConsensusStatus } from "./genlayer-client";
 import { SENTINEL_SOURCE } from "./sentinel-source";
 
@@ -371,6 +372,183 @@ export async function withdrawRemainingBond(
   return writeContractWithFees(client, {
     address: covenantAddress,
     functionName: SENTINEL_METHODS.withdrawRemainingBond,
+    args: [],
+    value: 0n,
+  });
+}
+
+// ---------------------------------------------------------------------
+// Continuous Audit Signals (SentinelSignals covenant contract)
+// ---------------------------------------------------------------------
+
+export async function fetchSignals(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`
+): Promise<SignalRecord[]> {
+  const result = await client.readContract({
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.getSignals,
+    args: [],
+  });
+  return result as unknown as SignalRecord[];
+}
+
+export async function fetchSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<SignalRecord> {
+  const result = await client.readContract({
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.getSignal,
+    args: [signalId],
+  });
+  return result as unknown as SignalRecord;
+}
+
+export async function fetchSignalPolls(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<SignalPoll[]> {
+  const result = await client.readContract({
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.getSignalPolls,
+    args: [signalId],
+  });
+  return result as unknown as SignalPoll[];
+}
+
+export async function fetchSignalRefund(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  address: string
+): Promise<string> {
+  const result = await client.readContract({
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.getSignalRefund,
+    args: [address],
+  });
+  return result as unknown as string;
+}
+
+export async function createAuditSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  input: {
+    label: string;
+    endpointUrl: string;
+    rule: string;
+    intervalSeconds: number;
+    rewardPerHit: bigint;
+    stipend: bigint;
+    expiresAt: number;
+  },
+  value: bigint
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.createAuditSignal,
+    args: [
+      input.label,
+      input.endpointUrl,
+      input.rule,
+      input.intervalSeconds,
+      input.rewardPerHit,
+      input.stipend,
+      input.expiresAt,
+    ],
+    value,
+  });
+}
+
+export async function topUpSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string,
+  value: bigint
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.topUpSignal,
+    args: [signalId],
+    value,
+  });
+}
+
+export async function pollSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.pollAuditSignal,
+    args: [signalId],
+    value: 0n,
+    consensusMaxRotations: AUDIT_MAX_ROTATIONS,
+  });
+}
+
+export async function pauseSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.pauseSignal,
+    args: [signalId],
+    value: 0n,
+  });
+}
+
+export async function resumeSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.resumeSignal,
+    args: [signalId],
+    value: 0n,
+  });
+}
+
+export async function cancelSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.cancelSignal,
+    args: [signalId],
+    value: 0n,
+  });
+}
+
+export async function expireSignal(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`,
+  signalId: string
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.expireSignal,
+    args: [signalId],
+    value: 0n,
+  });
+}
+
+export async function claimSignalRefund(
+  client: GenLayerClient<GenLayerChain>,
+  covenantAddress: `0x${string}`
+): Promise<`0x${string}`> {
+  return writeContractWithFees(client, {
+    address: covenantAddress,
+    functionName: SENTINEL_SIGNAL_METHODS.claimRefund,
     args: [],
     value: 0n,
   });

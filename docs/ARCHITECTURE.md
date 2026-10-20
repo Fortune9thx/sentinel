@@ -36,9 +36,9 @@ flowchart TB
 
 ## Contract architecture
 
-Two contracts, following the verified `genlayerlabs/intelligent-oracle` factory pattern (same
-`py-genlayer` dependency hash independently confirmed live on Bradbury across multiple prior
-projects on this stack):
+Four contracts, following the verified `genlayerlabs/intelligent-oracle` factory pattern (same
+`py-genlayer` dependency hash independently confirmed live on Bradbury and Studio Devnet across
+multiple prior projects on this stack):
 
 - **`SentinelFactory.py`** — a registry that deploys a fresh `Sentinel` contract per posted
   covenant via `gl.deploy_contract(code=sentinel_source.encode("utf-8"), args=[...], salt_nonce=...)`.
@@ -55,6 +55,40 @@ projects on this stack):
   `audit` (the fail-closed Equivalence Principle consensus step), `claim_slash_share`
   (pull-based breach payout), `request_exit` / `withdraw_remaining_bond` (bounded bond recovery),
   and view methods (`get_covenant_info`, `get_audits`, `get_breaches`, `get_claimable`, …).
+- **`SentinelSignals.py`** — a per-covenant superset of `Sentinel.py`. It keeps the accepted
+  bond/audit/breach lifecycle unchanged and adds creator-funded continuous watch rules:
+  `create_audit_signal` (payable pool), `poll_audit_signal` (permissionless, rate-limited,
+  inline payout), `top_up_signal` / `pause_signal` / `resume_signal` / `cancel_signal`
+  (creator-gated), `expire_signal` (anyone after expiry), and `claim_refund` (pull-based).
+  It is deployed directly, the same way the frontend deploys `Sentinel.py`, and can be
+  registered with `SentinelSignalsFactory`.
+- **`SentinelSignalsFactory.py`** — a registry with the same shape as `SentinelFactory.py`,
+  holding the `SentinelSignals` source as a constructor argument and deploying a fresh signals
+  covenant via `create_covenant`, plus the two-tier `register_covenant` / `verify_covenant`
+  path.
+
+## Continuous audit signals
+
+A signal is a pool, not a third-party monitor. The creator deposits GEN and states a label, live
+endpoint URL, natural-language rule, interval, reward per hit, optional stipend, and expiry.
+`poll_audit_signal` is open to anyone: it enforces `now >= last_poll_at + interval_seconds`,
+fetches the endpoint once with `gl.nondet.web.get`, hashes the raw body as the evidence
+fingerprint, and only then runs the LLM judgment over a sanitized excerpt inside a
+"data, not instructions" envelope. A non-2xx status, an empty body, a fetch failure, or
+confidence below 0.6 is recorded as `inconclusive`.
+
+The payout model is deliberately single-surface:
+
+- `poll_audit_signal` pays the poller inline. A `hit` pays `reward_per_hit`; a `miss` or
+  `inconclusive` pays `stipend`. The payout is clamped to the remaining pool, decremented from
+  `signal_pool`, and persisted into the poll record; a poll that drains the pool moves the signal
+  to `exhausted`, and the creator can `top_up_signal` to reactivate it before expiry.
+- `claim_signal` always reverts. There is no second claim path that could pay the same poll
+  twice, and the regression test asserts a single poll produces exactly one payout.
+- A hit never slashes the seller bond and never advances the breach streak. Signal outcomes are
+  independent of `audit()`; only `audit()` can trigger a breach.
+- Creator cancellation and post-expiry cleanup move the remainder into a per-signal refund
+  bucket that the creator withdraws with `claim_refund`. Nothing is pushed automatically.
 
 ## Why a covenant runs continuously, not one-shot
 
@@ -198,12 +232,24 @@ success. `create_covenant` requires `FINALIZED` (not just `ACCEPTED`) before its
 presented, since its output (a new contract address) is exactly the kind of state other flows act
 on and `ACCEPTED` can still be appealed and reversed.
 
+Signal writes additionally require `resultName` to be `AGREE` or `MAJORITY_AGREE` (the
+`requireAgree` option), because a poll's payout is derived from the consensus result and a
+returned-but-disagreed poll must not be shown as a paid hit. All signal writes share
+`lib/useSignalWriteGate.ts`: a connected wallet, chain id 61997, and a non-empty
+`getContractSchema` for the target address. Signals are reachable from the covenant page
+("Signals"), with routes `/covenants/[address]/signals`, `/signals/new`, and `/signals/[id]`.
+
 ## Known scaling limitations (stated, not hidden)
 
 - **No global index across all covenants' audit history.** The Explorer walks
   `SentinelFactory.get_covenants()` and reads each covenant's cached metadata individually. Fine
   at testnet scale; a real index (subgraph-style, or a denormalized registry field) is the natural
   next step at production scale.
+- **Signals have no cross-covenant index and a hard 50-poll record cap.** A covenant's signals
+  are enumerated from its own `signal_ids` list, and older poll records for one signal are
+  dropped from view after 50 even though the pool accounting is unaffected. Per-covenant signal
+  counts are also unbounded, so a very large creator would eventually need pagination from the
+  client; `get_signals_page` exists for that reason.
 - **Breach eligibility snapshotting is `O(n)` over registered beneficiaries** at breach time —
   bounded by however many addresses have registered, which is expected to stay small relative to
   a covenant's own audit cadence at testnet scale.

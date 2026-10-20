@@ -1,0 +1,43 @@
+{
+  "network": "genlayer-studio-devnet",
+  "chainId": 61997,
+  "rpc": "https://studio-dev.genlayer.com/api",
+  "explorer": "https://explorer-studio-dev.genlayer.com",
+  "deployer": "0xC6E6d3b2acCaECeCeB40Ad4bD3dF123DDCB4e537",
+  "sentinelSignalsFactory": {
+    "address": "0x69FeCf753243F6DE8E202E2Ea499B04A389ACc98",
+    "txHash": "0x520aa70d3d79243e1a061752335d9d41f6bf1edea6bd6732c12e57b94df8b75b",
+    "status": "FINALIZED",
+    "executionResult": "FINISHED_WITH_RETURN",
+    "sourceBytes": 47735,
+    "factoryBytes": 19137,
+    "creationStakeWei": "0",
+    "deployedAt": "2026-10-20",
+    "supersedes": "0xb6DB0D4800733F96916C4ceE544A0065771617DD"
+  },
+  "liveVerification": {
+    "signalCovenant": {
+      "address": "0x2361AA8531DFc9Db017c5866360a38399B64b26D",
+      "deployTxHash": "0x57d441888c1b8ed8f5969d957dc8971379fc2980bc7acf6452558ee3e7dfe97d"
+    },
+    "observed": {
+      "outcome": "hit",
+      "confidence": "1.0",
+      "payoutWei": "2",
+      "poolRemainingWei": "8",
+      "pollCount": "1",
+      "payoutCount": "1"
+    },
+    "doublePayObserved": "claim_signal finalized as FINISHED_WITH_ERROR (reverts); no second payout path exists"
+  },
+  "registryVerification": {
+    "signalCovenant": "0xd73Fc8032Ba7323d4FCC4FE7F48624B3a7F93C3f",
+    "deployTxHash": "0x32c320a94d67fc40f7eaa16207b808c0e1d6e1cb688fb9613749bbc073c519d6",
+    "registerTxHash": "0x46aad5eb9c95da2e72dfa20284b2019504dd68daba62874e65a486e68b32d475",
+    "observed": {
+      "registered": true,
+      "covenantCount": 1,
+      "verified": false
+    }
+  }
+}

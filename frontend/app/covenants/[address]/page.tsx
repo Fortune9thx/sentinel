@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useParams } from "next/navigation";
 import { motion } from "framer-motion";
 import {
@@ -8,6 +9,7 @@ import {
   ShieldCheck,
   ShieldAlert,
   Radar,
+  Activity,
   Clock,
   Coins,
   Users,
@@ -241,6 +243,11 @@ export default function CovenantDetailPage() {
               <Radar className="h-4 w-4" /> Run audit
             </Button>
           )}
+          <Button variant="secondary" asChild>
+            <Link href={`/covenants/${address}/signals`}>
+              <Activity className="h-4 w-4" /> Signals
+            </Link>
+          </Button>
         </div>
       </div>
 

@@ -19,6 +19,8 @@ from gltest.direct import deploy_contract as _raw_deploy_contract
 CONTRACTS_DIR = Path(__file__).resolve().parents[2] / "contracts"
 SENTINEL_PATH = CONTRACTS_DIR / "Sentinel.py"
 SENTINEL_FACTORY_PATH = CONTRACTS_DIR / "SentinelFactory.py"
+SENTINEL_SIGNALS_PATH = CONTRACTS_DIR / "SentinelSignals.py"
+SENTINEL_SIGNALS_FACTORY_PATH = CONTRACTS_DIR / "SentinelSignalsFactory.py"
 
 _real_unlink = os.unlink
 
@@ -36,6 +38,11 @@ os.unlink = _safe_unlink
 @pytest.fixture
 def sentinel_source() -> str:
     return SENTINEL_PATH.read_text(encoding="utf-8")
+
+
+@pytest.fixture
+def sentinel_signals_source() -> str:
+    return SENTINEL_SIGNALS_PATH.read_text(encoding="utf-8")
 
 
 def _find_real_address_cls():
@@ -62,21 +69,17 @@ _AddressCls = None
 
 
 def warp_now(vm, iso_timestamp: str) -> None:
-    """STALE, now a safe no-op -- kept only so existing call sites don't
-    crash. Written against the pre-v0.3.0 API (gl.message_raw['datetime'],
-    accessed via the now-nonexistent `genlayer.gl` submodule); since the
-    contract migration to v0.3.0, _consensus_now() calls gl.vm.get_timestamp()
-    instead, which is NOT YET IMPLEMENTED in the installed gltest package's
-    direct-mode WASI mock at all (confirmed: zero references to
-    'GetTimestamp'/'get_timestamp' anywhere in the installed gltest source)
-    -- every call raises AttributeError: 'NoneType' object has no attribute
-    'timestamp' inside the contract itself. This blocks every direct-mode
-    test that deploys or calls a Sentinel method (32 of 54 as of this
-    finding) until gltest's mock adds GetTimestamp support -- a toolchain
-    gap, not a contract bug. Not worked around with an increasingly fragile
-    monkeypatch here; left honest and broken so it fails loudly rather than
-    silently testing the wrong thing."""
+    """Advance the direct-mode VM clock AND the loaded genlayer.message raw
+    payload. vm.warp() updates vm._datetime and re-syncs sender/value/chain,
+    but gltest's sync_message_context() never copies datetime, so a contract
+    that (correctly, per Sentinel._consensus_now) reads
+    gl.message.raw["datetime"] would keep seeing the timestamp from VM
+    construction. Mirror the warp into message_raw directly."""
     vm.warp(iso_timestamp)
+    message_mod = sys.modules.get("genlayer.message")
+    raw = getattr(message_mod, "raw", None) if message_mod is not None else None
+    if isinstance(raw, dict):
+        raw["datetime"] = iso_timestamp
 
 
 def deploy_contract(contract_path, vm, *args, **kwargs):

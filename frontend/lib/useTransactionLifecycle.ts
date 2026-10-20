@@ -52,7 +52,7 @@ export function useTransactionLifecycle(client: GenLayerClient<GenLayerChain> | 
   }, []);
 
   const run = useCallback(
-    async (submit: () => Promise<`0x${string}`>, options?: { requireFinalized?: boolean }) => {
+    async (submit: () => Promise<`0x${string}`>, options?: { requireFinalized?: boolean; requireAgree?: boolean }) => {
       if (!client) {
         setState({ ...INITIAL_STATE, phase: "error", error: "Connect a wallet first." });
         return;
@@ -86,7 +86,16 @@ export function useTransactionLifecycle(client: GenLayerClient<GenLayerChain> | 
           { isCancelled: () => cancelledRef.current, requireFinalized: options?.requireFinalized }
         );
         if (cancelledRef.current) return;
-        const outcome = describeTransactionOutcome(transaction);
+        let outcome = describeTransactionOutcome(transaction);
+        if (outcome.succeeded && options?.requireAgree) {
+          const resultName = transaction.resultName ?? "";
+          if (resultName !== "AGREE" && resultName !== "MAJORITY_AGREE") {
+            outcome = {
+              succeeded: false,
+              reason: `The transaction returned successfully, but consensus did not agree (result: ${resultName || "unknown"}).`,
+            };
+          }
+        }
         setState({
           phase: outcome.succeeded ? "success" : "error",
           hash,

@@ -104,6 +104,36 @@ const tx = await client.waitForTransactionReceipt({ hash });
 | `get_claimable` | view | `breach_id: str, address: str` | `str` (wei) |
 | `is_claimed` | view | `breach_id: str, address: str` | `bool` |
 
+## SentinelSignals (continuous audit signals) reference
+
+Deploy `contracts/SentinelSignals.py` directly (same constructor args as `Sentinel.py`) or
+register it through `SentinelSignalsFactory`. All bond/audit/breach methods above still exist
+unchanged.
+
+| Method | Kind | Args | Returns |
+| --- | --- | --- | --- |
+| `create_audit_signal` | payable | `label: str, endpoint_url: str, rule: str, interval_seconds: u256, reward_per_hit: u256, stipend: u256, expires_at: u256` | `str` (signal id); sent value seeds the pool |
+| `poll_audit_signal` | write | `signal_id: str` | `str` (poll id); pays the poller inline, exactly once |
+| `top_up_signal` | payable | `signal_id: str` | `-` (creator only; reactivates an exhausted signal) |
+| `pause_signal` | write | `signal_id: str` | `-` (creator only) |
+| `resume_signal` | write | `signal_id: str` | `-` (creator only) |
+| `cancel_signal` | write | `signal_id: str` | `-` (creator only; refund is pull-based) |
+| `expire_signal` | write | `signal_id: str` | `-` (anyone after `expires_at`; refund is pull-based) |
+| `claim_refund` | write | `-` | `-` (sender's accumulated signal refunds) |
+| `claim_signal` | write | `signal_id: str` | always reverts; payouts happen only in `poll_audit_signal` |
+| `get_signal` | view | `signal_id: str` | `dict` |
+| `get_signals` | view | `-` | `list[dict]` (latest 50) |
+| `get_signals_page` | view | `offset: int, limit: int` | `list[dict]` |
+| `get_signals_by_covenant` | view | `covenant_address: str` | `list[dict]` (self only) |
+| `get_signal_polls` | view | `signal_id: str` | `list[dict]` (latest 50) |
+| `get_signal_refund` | view | `address: str` | `str` (wei) |
+| `get_signal_count` | view | `-` | `int` |
+
+A poll outcome is `hit`, `miss`, or `inconclusive`. A `hit` pays `reward_per_hit`; the other
+outcomes pay `stipend`; every payout is clamped to the remaining pool. Confidence below 0.6,
+non-2xx HTTP, empty bodies, and fetch failures are `inconclusive`. A hit never slashes the bond
+or advances the breach streak.
+
 ## Checking a seller before you pay
 
 ```ts
