@@ -92,7 +92,7 @@ Source: 47735 bytes
 | 2. Register with factory | `0x7198db0a14463e88cba5a516ace17f3c3d48fb0814fbb2883de175fda1ae5533` | `FINISHED_WITH_RETURN`; meta returned |
 | 3. Fund bond (10 wei) | `0xb82926cab70267e1837f37a379d7cefbfacb68e91b7eb29e880e5719b478492f` | `active`, bond 10 |
 | 4. Create signal #0 (pool 10, reward 4, stipend 1) | `0xaa8d7604d69bdcd0cea6e0c34cfda75fcaedf56051e9c0eb37a7b231f5368a4f` | signal id `0` |
-| 5. Create signal #1 (pool 3, reward 1, expires in 60s) | `0x4de14efe1716be6fabe7c0790825965c6f89e136b500bf9986bb71576bfda656` | signal id `1` |
+| 5. Create signal #1 (pool 3, reward 1, short expiry) | `0x4de14efe1716be6fabe7c0790825965c6f89e136b500bf9986bb71576bfda656` | signal id `1` |
 | 6. Poll signal #0 | `0x4c88322b42034541529a47fa412ea7fafa5625011dbc70dd380614a8fd12ca69` | `hit`, payout 4 wei, pool 6, `poll_count=1`, `payout_count=1` |
 | 7. Immediate second poll | `0x8267d75abf83353f3d2ba46194b48e58c31f154d635619fe02418ec322cb7c7e` | `FINISHED_WITH_ERROR` (rate limit) |
 | 8. `claim_signal` | `0xc346c0d39edb7be90a7e37ccc347cbdc78639fbee815717ffcbe046e31a8e6d2` | `FINISHED_WITH_ERROR`; pool still 6, total paid still 4 |
@@ -162,7 +162,8 @@ https://sentinel-x9.vercel.app/covenants/0x43aBBad9C074105Fa9382b8BEd20dbfB41F8f
 ### Step 1 - connect
 
 1. Click "Connect Wallet".
-2. Choose the wallet that holds the deployer key.
+2. Choose any wallet funded with Studio Devnet GEN. The recorded run used the deployer wallet,
+   but no deployer key is needed to create or poll a signal.
 3. Approve the Studio Devnet chain switch if prompted. The app only configures chain `61997`.
 4. Expected: no yellow warning under the page title. If it says "Switch your wallet to GenLayer
    Studio Dev (chain 61997)", switch networks and refresh.
@@ -224,10 +225,13 @@ the pool at 6 wei.
 
 ### Step 6 - pause, resume, top up
 
-1. On the active card, click "Pause". Expected: status `paused`, Poll button disappears.
-2. Click "Resume". Expected: status `active`, Poll button returns.
-3. In the "Top up (GEN)" field enter `0.005`, click "Add to pool".
-4. Expected: pool increases by exactly 0.005 GEN.
+1. On the active card, click "Pause". Expected: status `paused`.
+2. In the current build the Poll button is still rendered while paused. Clicking it must fail
+   with `Signal is not active.`; that is the contract guard, not a UI success path.
+3. Click "Resume". Expected: status `active`.
+4. Top-up lives on the signals list card, not the signal detail page. In "Top up (GEN)" enter
+   `0.005`, click "Add to pool".
+5. Expected: pool increases by exactly 0.005 GEN.
 
 ### Step 7 - cancel and refund
 
