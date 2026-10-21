@@ -191,7 +191,8 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full system design, s
 constraints, and rationale behind every deliberate design choice, [`docs/RESOLUTION_LOGIC.md`](docs/RESOLUTION_LOGIC.md)
 for a line-by-line walkthrough of `audit()` and the breach state machine, and
 [`docs/AUDIT.md`](docs/AUDIT.md) for a self-adversarial review pass calibrated against real
-GenLayer reviewer rejection language.
+GenLayer reviewer rejection language. The reproducible full-lifecycle signal test, with every
+transaction hash from the recorded run, is in [`docs/E2E_SIGNALS.md`](docs/E2E_SIGNALS.md).
 
 ## License
 

@@ -59,6 +59,11 @@ The factory registration path was also exercised with a second fresh signals cov
 Registry probe covenant:
 `0xd73Fc8032Ba7323d4FCC4FE7F48624B3a7F93C3f`
 
+A full lifecycle run (deploy, register, fund, create two signals, poll, rate-limit rejection,
+double-pay rejection, pause, resume, top-up, cancel, refund, expiry, refund) passed against
+covenant `0x43aBBad9C074105Fa9382b8BEd20dbfB41F8f480`. The exact step-by-step guide and every
+transaction hash are in [`docs/E2E_SIGNALS.md`](E2E_SIGNALS.md).
+
 ## What changed
 
 ### Contracts

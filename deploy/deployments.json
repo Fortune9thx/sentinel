@@ -43,5 +43,34 @@
       "covenantCount": 1,
       "verified": false
     }
+  },
+  "fullLifecycleE2E": {
+    "covenant": "0x43aBBad9C074105Fa9382b8BEd20dbfB41F8f480",
+    "deployTxHash": "0x733f694d5cb57338c0215e1a4c5dfe220408608c080661096dcebebbddfa8267",
+    "registerTxHash": "0x7198db0a14463e88cba5a516ace17f3c3d48fb0814fbb2883de175fda1ae5533",
+    "fundBondTxHash": "0xb82926cab70267e1837f37a379d7cefbfacb68e91b7eb29e880e5719b478492f",
+    "createSignalTxHashes": [
+      "0xaa8d7604d69bdcd0cea6e0c34cfda75fcaedf56051e9c0eb37a7b231f5368a4f",
+      "0x4de14efe1716be6fabe7c0790825965c6f89e136b500bf9986bb71576bfda656"
+    ],
+    "pollTxHash": "0x4c88322b42034541529a47fa412ea7fafa5625011dbc70dd380614a8fd12ca69",
+    "rateLimitedPollTxHash": "0x8267d75abf83353f3d2ba46194b48e58c31f154d635619fe02418ec322cb7c7e",
+    "claimSignalTxHash": "0xc346c0d39edb7be90a7e37ccc347cbdc78639fbee815717ffcbe046e31a8e6d2",
+    "pauseTxHash": "0x9a2abf92e7e55f13f29fdb2782c124fa74800d3bd5bd14a7459dcccf9727dfa3",
+    "pausedPollTxHash": "0x93679a8e0b46a4d38fd57eb82194faf72aad655361a9679d1f5eb5c68354ef02",
+    "resumeTxHash": "0x6f07bdb2622c01d158b975e252efc24263714e33fc2efabbcbf9764900911d4c",
+    "topUpTxHash": "0x55ace8f1ebcf8e15c783f6f55bdf9c4a5af64f2b90ae07dab8e47cb80b6b933a",
+    "cancelTxHash": "0x07ce067dc17f5579c1564d325dc8a8e5672b1da3393b6dd782fbc7d5ee75fd91",
+    "cancelledPollTxHash": "0xdfa8eb4fc9e7c4ade3e24da3485e6079d359b3887700756223cd3eced61ecfd0",
+    "claimRefundTxHash": "0x7283af71d5d94aa3b5501d3daac76ccfafad89cb2feb998277092121c40aba89",
+    "expireTxHash": "0xad0da144f06a24b3a4bc244022659cd6070e4c4bef259e61510accde4756267f",
+    "expireRefundTxHash": "0x323c42583c1b5fd1682076a345a058e5b6d942784b1bcf3f16d7be5b2ca47874",
+    "observed": {
+      "signals": "2",
+      "signal0": "cancelled, 1 hit, 4 wei paid, 11 wei refunded",
+      "signal1": "expired, 3 wei refunded",
+      "bondAfter": "10 wei",
+      "covenantStatus": "active"
+    }
   }
 }
