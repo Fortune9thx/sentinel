@@ -18,7 +18,11 @@
   "liveVerification": {
     "signalCovenant": {
       "address": "0x2361AA8531DFc9Db017c5866360a38399B64b26D",
-      "deployTxHash": "0x57d441888c1b8ed8f5969d957dc8971379fc2980bc7acf6452558ee3e7dfe97d"
+      "deployTxHash": "0x57d441888c1b8ed8f5969d957dc8971379fc2980bc7acf6452558ee3e7dfe97d",
+      "fundBondTxHash": "0xde98b828023b42e6368b68f026c42bdad5a202e845a60a63cda56589147b2fb0",
+      "createSignalTxHash": "0x63268ec5fe152ed420da08a8c351a5cc343a2dfa7800ec8db849b84af577e5b1",
+      "pollTxHash": "0x5551037d972226ac8c328053561bfafbbb4728736a278120d41643248db9d116",
+      "claimAttemptTxHash": "0x535c957840f50b1fc52666fe1509c54dd815faa17e621a069044531528c2c594"
     },
     "observed": {
       "outcome": "hit",
